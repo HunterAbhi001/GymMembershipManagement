@@ -45,9 +45,9 @@ abstract class AppDatabase : RoomDatabase() {
                                 calendar.add(Calendar.YEAR, -1)
                                 val expiryDate3 = calendar.timeInMillis
 
-                                getDatabase(context).memberDao().upsertMember(Member(name="John Wick", contact="111-222-3333", plan="6 Months", startDate=startDate, expiryDate=expiryDate1))
-                                getDatabase(context).memberDao().upsertMember(Member(name="Jane Smith", contact="444-555-6666", plan="1 Month", startDate=startDate, expiryDate=expiryDate2))
-                                getDatabase(context).memberDao().upsertMember(Member(name="Peter Parker", contact="777-888-9999", plan="1 Year", startDate=startDate, expiryDate=expiryDate3))
+                                getDatabase(context).memberDao().upsertMember(Member(name="John Wick", contact="+911112223333", plan="6 Months", startDate=startDate, expiryDate=expiryDate1))
+                                getDatabase(context).memberDao().upsertMember(Member(name="Jane Smith", contact="+914445556666", plan="1 Month", startDate=startDate, expiryDate=expiryDate2))
+                                getDatabase(context).memberDao().upsertMember(Member(name="Peter Parker", contact="7778889999", plan="1 Year", startDate=startDate, expiryDate=expiryDate3))
                             }
                         }
                     })
