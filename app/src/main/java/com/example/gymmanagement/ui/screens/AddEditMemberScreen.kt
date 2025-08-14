@@ -29,7 +29,7 @@ fun AddEditMemberScreen(
     var selectedPlan by remember { mutableStateOf(member?.plan ?: "") }
     var startDate by remember { mutableStateOf(member?.startDate ?: System.currentTimeMillis()) }
 
-    val plans = listOf("1 Month", "3 Months", "6 Months", "1 Year")
+    val plans = (1..12).map { "$it Month${if (it > 1) "s" else ""}" }
     var expanded by remember { mutableStateOf(false) }
 
     Scaffold(
@@ -150,13 +150,9 @@ fun AddEditMemberScreen(
 }
 
 fun calculateExpiryDate(startDate: Long, plan: String): Long {
+    val monthsToAdd = plan.split(" ")[0].toIntOrNull() ?: 0
     val calendar = Calendar.getInstance()
     calendar.timeInMillis = startDate
-    when (plan) {
-        "1 Month" -> calendar.add(Calendar.MONTH, 1)
-        "3 Months" -> calendar.add(Calendar.MONTH, 3)
-        "6 Months" -> calendar.add(Calendar.MONTH, 6)
-        "1 Year" -> calendar.add(Calendar.YEAR, 1)
-    }
+    calendar.add(Calendar.MONTH, monthsToAdd)
     return calendar.timeInMillis
 }

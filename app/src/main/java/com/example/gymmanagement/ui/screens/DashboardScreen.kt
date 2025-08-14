@@ -64,7 +64,8 @@ fun DashboardScreen(
                     label = "Expiring Soon",
                     value = membersExpiringSoon.size.toString(),
                     modifier = Modifier.weight(1f),
-                    color = Orange
+                    color = Orange,
+                    onClick = { navController.navigate("expiring_members") }
                 )
             }
 

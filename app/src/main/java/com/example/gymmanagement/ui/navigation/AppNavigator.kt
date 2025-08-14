@@ -41,6 +41,13 @@ fun AppNavigator(application: GymManagementApplication) {
                 onSearchQueryChange = { newQuery -> viewModel.onSearchQueryChange(newQuery) }
             )
         }
+        composable("expiring_members") {
+            val members by viewModel.membersExpiringSoon.collectAsState()
+            ExpiringMembersScreen(
+                navController = navController,
+                members = members
+            )
+        }
         composable(
             route = "member_details/{memberId}",
             arguments = listOf(navArgument("memberId") { type = NavType.IntType })
