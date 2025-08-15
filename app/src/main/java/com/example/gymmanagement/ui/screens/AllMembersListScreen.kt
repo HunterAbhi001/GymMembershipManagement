@@ -24,12 +24,12 @@ import java.util.*
 @Composable
 fun AllMembersListScreen(
     navController: NavController,
-    members: List<Member>,
-    searchQuery: String,
-    onSearchQueryChange: (String) -> Unit,
+    allMembers: List<Member>, // now expecting unfiltered list
     onImport: (Uri) -> Unit,
     onExport: (Uri) -> Unit
 ) {
+    var searchQuery by remember { mutableStateOf("") }
+
     val importLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent(),
         onResult = { uri: Uri? ->
@@ -45,6 +45,18 @@ fun AllMembersListScreen(
     )
 
     var menuExpanded by remember { mutableStateOf(false) }
+
+    // 🔹 Filter locally so other screens remain unaffected
+    val filteredMembers = remember(searchQuery, allMembers) {
+        if (searchQuery.isBlank()) {
+            allMembers
+        } else {
+            allMembers.filter { member ->
+                member.name.contains(searchQuery, ignoreCase = true) ||
+                        member.contact.contains(searchQuery, ignoreCase = true)
+            }
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -91,14 +103,14 @@ fun AllMembersListScreen(
         Column(modifier = Modifier.padding(paddingValues)) {
             OutlinedTextField(
                 value = searchQuery,
-                onValueChange = onSearchQueryChange,
+                onValueChange = { searchQuery = it },
                 label = { Text("Search Members") },
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(16.dp)
             )
             LazyColumn(modifier = Modifier.fillMaxSize()) {
-                items(members) { member ->
+                items(filteredMembers) { member ->
                     MemberListItem(
                         member = member,
                         onClick = { navController.navigate("member_details/${member.id}") }

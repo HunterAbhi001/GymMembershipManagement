@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Sms
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -14,8 +15,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import coil.compose.AsyncImage
 import com.example.gymmanagement.data.database.Member
 import com.example.gymmanagement.ui.theme.AppIcons
 import com.example.gymmanagement.ui.theme.Green
@@ -44,11 +48,16 @@ fun MemberListItem(
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(
+        AsyncImage(
+            model = member.photoUri,
+            contentDescription = "Member Photo",
             modifier = Modifier
-                .size(8.dp)
+                .size(48.dp)
                 .clip(CircleShape)
-                .background(statusColor)
+                .background(MaterialTheme.colorScheme.secondaryContainer),
+            contentScale = ContentScale.Crop,
+            placeholder = rememberVectorPainter(Icons.Default.Person),
+            error = rememberVectorPainter(Icons.Default.Person)
         )
         Spacer(modifier = Modifier.width(16.dp))
         Column(modifier = Modifier.weight(1f)) {

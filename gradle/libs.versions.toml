@@ -3,6 +3,7 @@ androidGradlePlugin = "8.4.1"
 kotlin = "2.0.0"
 composeCompiler = "2.0.0"
 ksp = "2.0.0-1.0.24"
+coil = "2.6.0"
 
 coreKtx = "1.13.1"
 lifecycleRuntimeKtx = "2.8.1"
@@ -41,6 +42,7 @@ androidx-test-ext-junit = { group = "androidx.test.ext", name = "junit", version
 androidx-espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espressoCore" }
 androidx-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-test-junit4" }
 androidx-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-test-manifest" }
+coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coil" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "androidGradlePlugin" }

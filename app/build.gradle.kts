@@ -69,6 +69,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.androidx.compose.material.icons.extended)
+    implementation(libs.coil.compose)
 
     // Database
     implementation(libs.androidx.room.runtime)

@@ -34,13 +34,10 @@ fun AppNavigator(application: GymManagementApplication) {
             )
         }
         composable("all_members_list") {
-            val members by viewModel.allMembers.collectAsState()
-            val searchQuery by viewModel.searchQuery.collectAsState()
+            val allMembers by viewModel.allMembers.collectAsState()
             AllMembersListScreen(
                 navController = navController,
-                members = members,
-                searchQuery = searchQuery,
-                onSearchQueryChange = { newQuery -> viewModel.onSearchQueryChange(newQuery) },
+                allMembers = allMembers,
                 onImport = { uri -> viewModel.importMembersFromCsv(application, uri) },
                 onExport = { uri -> viewModel.exportMembersToCsv(application, uri) }
             )
@@ -76,7 +73,7 @@ fun AppNavigator(application: GymManagementApplication) {
             MemberDetailScreen(
                 navController = navController,
                 member = member,
-                onDelete = { if(member != null) viewModel.deleteMember(member!!) }
+                onDelete = { if (member != null) viewModel.deleteMember(member!!) }
             )
         }
         composable(

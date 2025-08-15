@@ -11,5 +11,6 @@ data class Member(
     val plan: String,
     val startDate: Long,
     val expiryDate: Long,
-    val gender: String? = null
+    val gender: String? = null,
+    val photoUri: String? = null
 )
