@@ -18,32 +18,50 @@ import com.example.gymmanagement.viewmodel.MainViewModelFactory
 fun AppNavigator(application: GymManagementApplication) {
     val navController = rememberNavController()
     val viewModel: MainViewModel = viewModel(
-        factory = MainViewModelFactory(application.database.memberDao(), application.database.checkInDao())
+        factory = MainViewModelFactory(application.database.memberDao())
     )
 
     NavHost(navController = navController, startDestination = "dashboard") {
         composable("dashboard") {
-            val membersExpiringSoon by viewModel.membersExpiringSoon.collectAsState()
             val allMembers by viewModel.allMembers.collectAsState()
+            val membersExpiringSoon by viewModel.membersExpiringSoon.collectAsState()
+            val expiredMembers by viewModel.expiredMembers.collectAsState()
             DashboardScreen(
                 navController = navController,
-                activeMemberCount = allMembers.count { it.expiryDate >= System.currentTimeMillis() },
-                membersExpiringSoon = membersExpiringSoon
+                allMembers = allMembers,
+                membersExpiringSoon = membersExpiringSoon,
+                expiredMembers = expiredMembers
             )
         }
-        composable("members_list") {
+        composable("all_members_list") {
             val members by viewModel.allMembers.collectAsState()
             val searchQuery by viewModel.searchQuery.collectAsState()
-            MembersListScreen(
+            AllMembersListScreen(
                 navController = navController,
                 members = members,
                 searchQuery = searchQuery,
-                onSearchQueryChange = { newQuery -> viewModel.onSearchQueryChange(newQuery) }
+                onSearchQueryChange = { newQuery -> viewModel.onSearchQueryChange(newQuery) },
+                onImport = { uri -> viewModel.importMembersFromCsv(application, uri) },
+                onExport = { uri -> viewModel.exportMembersToCsv(application, uri) }
+            )
+        }
+        composable("active_members_list") {
+            val members by viewModel.activeMembers.collectAsState()
+            ActiveMembersListScreen(
+                navController = navController,
+                members = members
             )
         }
         composable("expiring_members") {
             val members by viewModel.membersExpiringSoon.collectAsState()
             ExpiringMembersScreen(
+                navController = navController,
+                members = members
+            )
+        }
+        composable("expired_members_list") {
+            val members by viewModel.expiredMembers.collectAsState()
+            ExpiredMembersListScreen(
                 navController = navController,
                 members = members
             )
@@ -54,13 +72,10 @@ fun AppNavigator(application: GymManagementApplication) {
         ) { backStackEntry ->
             val memberId = backStackEntry.arguments?.getInt("memberId") ?: 0
             val member by viewModel.getMemberById(memberId).collectAsState(initial = null)
-            val checkIns by viewModel.getCheckInsForMember(memberId).collectAsState(initial = emptyList())
 
             MemberDetailScreen(
                 navController = navController,
                 member = member,
-                checkIns = checkIns,
-                onCheckIn = { viewModel.recordCheckIn(memberId) },
                 onDelete = { if(member != null) viewModel.deleteMember(member!!) }
             )
         }

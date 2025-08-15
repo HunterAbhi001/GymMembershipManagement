@@ -1,8 +1,6 @@
 package com.example.gymmanagement.ui.screens
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
@@ -18,23 +16,19 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
-import com.example.gymmanagement.data.database.CheckIn
 import com.example.gymmanagement.data.database.Member
 import com.example.gymmanagement.ui.theme.AppIcons
 import com.example.gymmanagement.ui.theme.Green
 import com.example.gymmanagement.ui.theme.Red
+import com.example.gymmanagement.ui.utils.DateUtils.toDateString
 import com.example.gymmanagement.ui.utils.sendSmsMessage
 import com.example.gymmanagement.ui.utils.sendWhatsAppMessage
-import java.text.SimpleDateFormat
-import java.util.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MemberDetailScreen(
     navController: NavController,
     member: Member?,
-    checkIns: List<CheckIn>,
-    onCheckIn: () -> Unit,
     onDelete: () -> Unit
 ) {
     var showDeleteDialog by remember { mutableStateOf(false) }
@@ -84,21 +78,6 @@ fun MemberDetailScreen(
                     .padding(16.dp)
             ) {
                 DetailCard(member)
-                Spacer(modifier = Modifier.height(16.dp))
-                Button(
-                    onClick = onCheckIn,
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = member.expiryDate >= System.currentTimeMillis()
-                ) {
-                    Text("Record Check-in")
-                }
-                Spacer(modifier = Modifier.height(16.dp))
-                Text("Check-in History", style = MaterialTheme.typography.titleLarge)
-                LazyColumn {
-                    items(checkIns) { checkIn ->
-                        CheckInHistoryItem(checkIn)
-                    }
-                }
             }
         }
     }
@@ -139,6 +118,7 @@ fun DetailCard(member: Member) {
             Text(member.name, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
             Text(member.contact, style = MaterialTheme.typography.bodyLarge)
             Divider(modifier = Modifier.padding(vertical = 8.dp))
+            InfoRow("Gender", member.gender ?: "Not specified")
             InfoRow("Status", status, contentColor = statusColor)
             InfoRow("Plan", member.plan)
             InfoRow("Start Date", member.startDate.toDateString())
@@ -153,22 +133,4 @@ fun InfoRow(label: String, value: String, contentColor: Color = Color.Unspecifie
         Text(label, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text(value, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = contentColor)
     }
-}
-
-@Composable
-fun CheckInHistoryItem(checkIn: CheckIn) {
-    Text(
-        text = checkIn.timestamp.toFullDateTimeString(),
-        modifier = Modifier.padding(vertical = 8.dp)
-    )
-}
-
-fun Long.toDateString(): String {
-    val sdf = SimpleDateFormat("dd MMM yyyy", Locale.getDefault())
-    return sdf.format(Date(this))
-}
-
-fun Long.toFullDateTimeString(): String {
-    val sdf = SimpleDateFormat("EEE, dd MMM yyyy 'at' hh:mm a", Locale.getDefault())
-    return sdf.format(Date(this))
 }

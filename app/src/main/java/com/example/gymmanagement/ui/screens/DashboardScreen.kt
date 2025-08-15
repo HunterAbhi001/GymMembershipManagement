@@ -20,6 +20,7 @@ import com.example.gymmanagement.data.database.Member
 import com.example.gymmanagement.ui.common.MemberListItem
 import com.example.gymmanagement.ui.theme.Green
 import com.example.gymmanagement.ui.theme.Orange
+import com.example.gymmanagement.ui.theme.Red
 import com.example.gymmanagement.ui.utils.sendSmsMessage
 import com.example.gymmanagement.ui.utils.sendWhatsAppMessage
 import java.util.concurrent.TimeUnit
@@ -28,10 +29,12 @@ import java.util.concurrent.TimeUnit
 @Composable
 fun DashboardScreen(
     navController: NavController,
-    activeMemberCount: Int,
-    membersExpiringSoon: List<Member>
+    allMembers: List<Member>,
+    membersExpiringSoon: List<Member>,
+    expiredMembers: List<Member>
 ) {
     val context = LocalContext.current
+    val activeMemberCount = allMembers.count { it.expiryDate >= System.currentTimeMillis() }
 
     Scaffold(
         topBar = {
@@ -54,17 +57,17 @@ fun DashboardScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .padding(16.dp)
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             // Stats Cards
-            Row(Modifier.fillMaxWidth()) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 StatCard(
                     label = "Active Members",
                     value = activeMemberCount.toString(),
                     modifier = Modifier.weight(1f),
-                    onClick = { navController.navigate("members_list") }
+                    onClick = { navController.navigate("active_members_list") }
                 )
-                Spacer(modifier = Modifier.width(16.dp))
                 StatCard(
                     label = "Expiring Soon",
                     value = membersExpiringSoon.size.toString(),
@@ -73,22 +76,30 @@ fun DashboardScreen(
                     onClick = { navController.navigate("expiring_members") }
                 )
             }
+            StatCard(
+                label = "Expired Members",
+                value = expiredMembers.size.toString(),
+                modifier = Modifier.fillMaxWidth(),
+                color = Red,
+                onClick = { navController.navigate("expired_members_list") }
+            )
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Button(onClick = { navController.navigate("all_members_list") }, modifier = Modifier.fillMaxWidth()) {
+                Text("Manage All Members (Import/Export)")
+            }
 
             // Expiring Soon List
             Text("Memberships Expiring Soon", style = MaterialTheme.typography.titleLarge)
-            Spacer(modifier = Modifier.height(8.dp))
 
             if (membersExpiringSoon.isEmpty()) {
-                Box(modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp), contentAlignment = Alignment.Center) {
+                Box(modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp), contentAlignment = Alignment.Center) {
                     Text("No memberships are expiring soon.")
                 }
             } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    items(membersExpiringSoon) { member ->
+                    items(membersExpiringSoon.take(3)) { member -> // Show a preview of 3
                         val daysRemaining = TimeUnit.DAYS.convert(member.expiryDate - System.currentTimeMillis(), TimeUnit.MILLISECONDS)
                         val message = "Hi ${member.name}, your gym membership is expiring in $daysRemaining days. Please contact us to renew."
 

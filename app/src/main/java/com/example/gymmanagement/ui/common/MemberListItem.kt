@@ -20,8 +20,7 @@ import com.example.gymmanagement.data.database.Member
 import com.example.gymmanagement.ui.theme.AppIcons
 import com.example.gymmanagement.ui.theme.Green
 import com.example.gymmanagement.ui.theme.Red
-import java.text.SimpleDateFormat
-import java.util.*
+import com.example.gymmanagement.ui.utils.DateUtils.toDateString
 import java.util.concurrent.TimeUnit
 
 @Composable
@@ -80,9 +79,4 @@ fun MemberListItem(
             }
         }
     }
-}
-
-private fun Long.toDateString(): String {
-    val sdf = SimpleDateFormat("dd MMM yyyy", Locale.getDefault())
-    return sdf.format(Date(this))
 }

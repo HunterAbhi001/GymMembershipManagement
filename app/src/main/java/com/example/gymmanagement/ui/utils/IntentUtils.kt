@@ -7,10 +7,19 @@ import android.net.Uri
 import android.widget.Toast
 import java.net.URLEncoder
 
+private fun formatPhoneNumber(phone: String): String {
+    // Remove all non-digit characters except '+'
+    var formattedPhone = phone.replace("[^0-9+]".toRegex(), "")
+    // If it's a 10-digit number, assume it's a local number and add the country code
+    if (formattedPhone.length == 10 && !formattedPhone.startsWith("+")) {
+        formattedPhone = "+91$formattedPhone"
+    }
+    return formattedPhone
+}
+
 fun sendWhatsAppMessage(context: Context, phone: String, message: String) {
     try {
-        // Ensure the phone number includes the country code and no symbols
-        val formattedPhone = phone.replace("[^0-9+]".toRegex(), "")
+        val formattedPhone = formatPhoneNumber(phone)
         val encodedMessage = URLEncoder.encode(message, "UTF-8")
 
         val intent = Intent(Intent.ACTION_VIEW).apply {
@@ -26,7 +35,7 @@ fun sendWhatsAppMessage(context: Context, phone: String, message: String) {
 
 fun sendSmsMessage(context: Context, phone: String, message: String) {
     try {
-        val formattedPhone = phone.replace("[^0-9+]".toRegex(), "")
+        val formattedPhone = formatPhoneNumber(phone)
         val uri = Uri.parse("smsto:$formattedPhone")
         val intent = Intent(Intent.ACTION_SENDTO, uri).apply {
             putExtra("sms_body", message)

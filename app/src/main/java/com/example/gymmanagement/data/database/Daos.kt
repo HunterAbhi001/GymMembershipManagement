@@ -8,6 +8,9 @@ interface MemberDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertMember(member: Member)
 
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertAll(members: List<Member>)
+
     @Query("SELECT * FROM members ORDER BY name ASC")
     fun getAllMembers(): Flow<List<Member>>
 
@@ -19,13 +22,4 @@ interface MemberDao {
 
     @Delete
     suspend fun deleteMember(member: Member)
-}
-
-@Dao
-interface CheckInDao {
-    @Insert
-    suspend fun insertCheckIn(checkIn: CheckIn)
-
-    @Query("SELECT * FROM check_ins WHERE memberId = :memberId ORDER BY timestamp DESC")
-    fun getCheckInsForMember(memberId: Int): Flow<List<CheckIn>>
 }

@@ -1,7 +1,6 @@
 package com.example.gymmanagement.ui.screens
 
 import android.app.DatePickerDialog
-import android.content.Context
 import android.widget.DatePicker
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -15,6 +14,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.example.gymmanagement.data.database.Member
+import com.example.gymmanagement.ui.utils.DateUtils.toDateString
 import java.util.*
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -24,13 +24,44 @@ fun AddEditMemberScreen(
     member: Member?,
     onSave: (Member) -> Unit
 ) {
-    var name by remember { mutableStateOf(member?.name ?: "") }
-    var contact by remember { mutableStateOf(member?.contact ?: "") }
-    var selectedPlan by remember { mutableStateOf(member?.plan ?: "") }
-    var startDate by remember { mutableStateOf(member?.startDate ?: System.currentTimeMillis()) }
+    var name by remember { mutableStateOf("") }
+    var contact by remember { mutableStateOf("") }
+    var selectedPlan by remember { mutableStateOf("") }
+    var startDate by remember { mutableStateOf(System.currentTimeMillis()) }
+    var gender by remember { mutableStateOf("") }
+
+    LaunchedEffect(member) {
+        if (member != null) {
+            name = member.name
+            contact = member.contact
+            selectedPlan = member.plan
+            startDate = member.startDate
+            gender = member.gender ?: ""
+        }
+    }
 
     val plans = (1..12).map { "$it Month${if (it > 1) "s" else ""}" }
-    var expanded by remember { mutableStateOf(false) }
+    var planExpanded by remember { mutableStateOf(false) }
+
+    val genders = listOf("Male", "Female", "Other")
+    var genderExpanded by remember { mutableStateOf(false) }
+
+    val context = LocalContext.current
+    val calendar = Calendar.getInstance()
+    calendar.timeInMillis = startDate
+
+    val year = calendar.get(Calendar.YEAR)
+    val month = calendar.get(Calendar.MONTH)
+    val day = calendar.get(Calendar.DAY_OF_MONTH)
+
+    val datePickerDialog = DatePickerDialog(
+        context,
+        { _: DatePicker, selectedYear: Int, selectedMonth: Int, selectedDay: Int ->
+            val newDate = Calendar.getInstance()
+            newDate.set(selectedYear, selectedMonth, selectedDay)
+            startDate = newDate.timeInMillis
+        }, year, month, day
+    )
 
     Scaffold(
         topBar = {
@@ -51,13 +82,15 @@ fun AddEditMemberScreen(
                     contact = contact,
                     plan = selectedPlan,
                     startDate = startDate,
-                    expiryDate = expiryDate
+                    expiryDate = expiryDate,
+                    gender = gender
                 ) ?: Member(
                     name = name,
                     contact = contact,
                     plan = selectedPlan,
                     startDate = startDate,
-                    expiryDate = expiryDate
+                    expiryDate = expiryDate,
+                    gender = gender
                 )
                 onSave(newOrUpdatedMember)
                 navController.popBackStack()
@@ -82,35 +115,62 @@ fun AddEditMemberScreen(
             OutlinedTextField(
                 value = contact,
                 onValueChange = { contact = it },
-                label = { Text("Contact (Phone/Email)") },
+                label = { Text("Contact (Phone with Country Code)") },
                 modifier = Modifier.fillMaxWidth()
             )
 
+            // Gender Dropdown
+            ExposedDropdownMenuBox(
+                expanded = genderExpanded,
+                onExpandedChange = { genderExpanded = !genderExpanded }
+            ) {
+                OutlinedTextField(
+                    value = gender,
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text("Gender") },
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = genderExpanded) },
+                    modifier = Modifier.menuAnchor().fillMaxWidth()
+                )
+                ExposedDropdownMenu(
+                    expanded = genderExpanded,
+                    onDismissRequest = { genderExpanded = false }
+                ) {
+                    genders.forEach { item ->
+                        DropdownMenuItem(
+                            text = { Text(item) },
+                            onClick = {
+                                gender = item
+                                genderExpanded = false
+                            }
+                        )
+                    }
+                }
+            }
+
             // Plan Dropdown
             ExposedDropdownMenuBox(
-                expanded = expanded,
-                onExpandedChange = { expanded = !expanded }
+                expanded = planExpanded,
+                onExpandedChange = { planExpanded = !planExpanded }
             ) {
                 OutlinedTextField(
                     value = selectedPlan,
                     onValueChange = {},
                     readOnly = true,
                     label = { Text("Membership Plan") },
-                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-                    modifier = Modifier
-                        .menuAnchor()
-                        .fillMaxWidth()
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = planExpanded) },
+                    modifier = Modifier.menuAnchor().fillMaxWidth()
                 )
                 ExposedDropdownMenu(
-                    expanded = expanded,
-                    onDismissRequest = { expanded = false }
+                    expanded = planExpanded,
+                    onDismissRequest = { planExpanded = false }
                 ) {
                     plans.forEach { plan ->
                         DropdownMenuItem(
                             text = { Text(plan) },
                             onClick = {
                                 selectedPlan = plan
-                                expanded = false
+                                planExpanded = false
                             }
                         )
                     }
@@ -118,21 +178,6 @@ fun AddEditMemberScreen(
             }
 
             // Start Date Picker
-            val context = LocalContext.current
-            val calendar = Calendar.getInstance().apply { timeInMillis = startDate }
-            val year = calendar.get(Calendar.YEAR)
-            val month = calendar.get(Calendar.MONTH)
-            val day = calendar.get(Calendar.DAY_OF_MONTH)
-
-            val datePickerDialog = DatePickerDialog(
-                context,
-                { _: DatePicker, selectedYear: Int, selectedMonth: Int, selectedDay: Int ->
-                    val newDate = Calendar.getInstance()
-                    newDate.set(selectedYear, selectedMonth, selectedDay)
-                    startDate = newDate.timeInMillis
-                }, year, month, day
-            )
-
             OutlinedTextField(
                 value = startDate.toDateString(),
                 onValueChange = {},
