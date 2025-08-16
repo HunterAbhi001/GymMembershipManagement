@@ -17,7 +17,12 @@ interface MemberDao {
     @Query("SELECT * FROM members WHERE id = :id")
     fun getMemberById(id: Int): Flow<Member?>
 
-    @Query("SELECT * FROM members WHERE expiryDate >= :today AND expiryDate < :sevenDaysLater ORDER BY expiryDate ASC")
+    /**
+     * Return members whose expiryDate falls in the inclusive range [today, sevenDaysLater].
+     * We use BETWEEN so the endpoints are inclusive and match the startOfDay/endOfDay timestamps
+     * produced by DateUtils.startOfDayMillis() and DateUtils.endOfDayMillis().
+     */
+    @Query("SELECT * FROM members WHERE expiryDate BETWEEN :today AND :sevenDaysLater ORDER BY expiryDate ASC")
     fun getMembersExpiringSoon(today: Long, sevenDaysLater: Long): Flow<List<Member>>
 
     @Delete

@@ -24,6 +24,7 @@ import com.example.gymmanagement.data.database.Member
 import com.example.gymmanagement.ui.theme.AppIcons
 import com.example.gymmanagement.ui.theme.Green
 import com.example.gymmanagement.ui.theme.Red
+import com.example.gymmanagement.ui.utils.DateUtils
 import com.example.gymmanagement.ui.utils.DateUtils.toDateString
 import java.util.concurrent.TimeUnit
 
@@ -34,12 +35,24 @@ fun MemberListItem(
     onWhatsAppClick: (() -> Unit)? = null,
     onSmsClick: (() -> Unit)? = null
 ) {
-    val isExpired = member.expiryDate < System.currentTimeMillis()
+    val todayStart = DateUtils.startOfDayMillis()
+    val todayEnd = DateUtils.endOfDayMillis()
+
+    val isExpired = member.expiryDate < todayStart
+    val isExpiringToday = member.expiryDate in todayStart..todayEnd
+
     val statusColor = if (isExpired) Red else Green
-    val daysRemaining = if (!isExpired) {
-        val diff = member.expiryDate - System.currentTimeMillis()
-        TimeUnit.DAYS.convert(diff, TimeUnit.MILLISECONDS)
-    } else null
+
+    val expiryText = when {
+        isExpired -> "Expired on ${member.expiryDate.toDateString()}"
+        isExpiringToday -> "Expires today"
+        else -> {
+            // Compute days relative to todayStart so "tomorrow" is 1
+            val diff = member.expiryDate - todayStart
+            val daysRemaining = TimeUnit.DAYS.convert(diff, TimeUnit.MILLISECONDS).coerceAtLeast(0)
+            "Expires in $daysRemaining days"
+        }
+    }
 
     Row(
         modifier = Modifier
@@ -62,7 +75,6 @@ fun MemberListItem(
         Spacer(modifier = Modifier.width(16.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(member.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
-            val expiryText = if (isExpired) "Expired on ${member.expiryDate.toDateString()}" else "Expires in $daysRemaining days"
             Text(
                 text = expiryText,
                 style = MaterialTheme.typography.bodySmall,

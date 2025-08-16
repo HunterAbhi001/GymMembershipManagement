@@ -7,11 +7,12 @@ import androidx.lifecycle.*
 import com.example.gymmanagement.data.database.Member
 import com.example.gymmanagement.data.database.MemberDao
 import com.example.gymmanagement.ui.utils.CsvUtils
+import com.example.gymmanagement.ui.utils.DateUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.util.Calendar
+import java.util.concurrent.TimeUnit
 
 class MainViewModel(
     private val memberDao: MemberDao
@@ -20,44 +21,51 @@ class MainViewModel(
     private val _searchQuery = MutableStateFlow("")
     val searchQuery = _searchQuery.asStateFlow()
 
+    /**
+     * allMembers returns the list optionally filtered by the search query.
+     * Filtering is applied here for the app-wide "all members" usage, but
+     * the All Members screen may also do local filtering if desired.
+     */
     val allMembers: StateFlow<List<Member>> = searchQuery
         .flatMapLatest { query ->
             if (query.isBlank()) {
                 memberDao.getAllMembers()
             } else {
                 memberDao.getAllMembers().map { members ->
-                    members.filter { it.name.contains(query, ignoreCase = true) }
+                    members.filter { it.name.contains(query, ignoreCase = true) || it.contact.contains(query, ignoreCase = true) }
                 }
             }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    /**
+     * Active members are those whose expiryDate is >= start of today.
+     */
     val activeMembers: StateFlow<List<Member>> = allMembers
         .map { members ->
-            members.filter { it.expiryDate >= System.currentTimeMillis() }
+            val todayStart = DateUtils.startOfDayMillis()
+            members.filter { it.expiryDate >= todayStart }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    /**
+     * Members expiring soon: query DAO for the range [todayStart .. sevenDaysLaterEnd]
+     */
     val membersExpiringSoon: StateFlow<List<Member>> = flow {
-        val today = Calendar.getInstance().apply {
-            set(Calendar.HOUR_OF_DAY, 0)
-            set(Calendar.MINUTE, 0)
-            set(Calendar.SECOND, 0)
-            set(Calendar.MILLISECOND, 0)
-        }.timeInMillis
-
-        val sevenDaysLater = Calendar.getInstance().apply {
-            add(Calendar.DAY_OF_YEAR, 7)
-        }.timeInMillis
-
-        emitAll(memberDao.getMembersExpiringSoon(today, sevenDaysLater))
+        val todayStart = DateUtils.startOfDayMillis()
+        val sevenDaysLaterEnd = DateUtils.endOfDayMillis(System.currentTimeMillis() + TimeUnit.DAYS.toMillis(7))
+        emitAll(memberDao.getMembersExpiringSoon(todayStart, sevenDaysLaterEnd))
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    /**
+     * Expired members are those whose expiryDate is strictly before today's start.
+     */
     val expiredMembers: StateFlow<List<Member>> = allMembers
         .map { members ->
+            val todayStart = DateUtils.startOfDayMillis()
             members
-                .filter { it.expiryDate < System.currentTimeMillis() }
-                .sortedByDescending { it.expiryDate } // Sort by most recently expired
+                .filter { it.expiryDate < todayStart }
+                .sortedByDescending { it.expiryDate } // most recently expired first
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 

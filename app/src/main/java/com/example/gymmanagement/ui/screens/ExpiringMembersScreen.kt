@@ -14,7 +14,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavController
 import com.example.gymmanagement.data.database.Member
 import com.example.gymmanagement.ui.common.MemberListItem
-import com.example.gymmanagement.ui.utils.DateUtils.toDateString
+import com.example.gymmanagement.ui.utils.DateUtils
 import com.example.gymmanagement.ui.utils.sendSmsMessage
 import com.example.gymmanagement.ui.utils.sendWhatsAppMessage
 import java.util.concurrent.TimeUnit
@@ -42,8 +42,18 @@ fun ExpiringMembersScreen(
         Column(modifier = Modifier.padding(paddingValues)) {
             LazyColumn(modifier = Modifier.fillMaxSize()) {
                 items(members) { member ->
-                    val daysRemaining = TimeUnit.DAYS.convert(member.expiryDate - System.currentTimeMillis(), TimeUnit.MILLISECONDS)
-                    val message = "Hi ${member.name}, your gym membership is expiring in $daysRemaining days. Please contact us to renew."
+                    // Use DateUtils startOfDay so today shows "expires today"
+                    val daysRemaining = run {
+                        val todayStart = DateUtils.startOfDayMillis()
+                        val diff = member.expiryDate - todayStart
+                        TimeUnit.DAYS.convert(diff, TimeUnit.MILLISECONDS).coerceAtLeast(0)
+                    }
+
+                    val message = if (daysRemaining == 0L) {
+                        "Hi ${member.name}, your gym membership expires today. Please renew to continue."
+                    } else {
+                        "Hi ${member.name}, your gym membership is expiring in $daysRemaining days. Please contact us to renew."
+                    }
 
                     MemberListItem(
                         member = member,

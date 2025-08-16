@@ -25,12 +25,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AddAPhoto
 import androidx.compose.material.icons.filled.DateRange
-import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
@@ -48,12 +48,14 @@ import java.util.*
 fun AddEditMemberScreen(
     navController: NavController,
     member: Member?,
-    onSave: (Member) -> Unit
+    onSave: (Member) -> Unit,
+    isRenewal: Boolean = false // <--- renewal mode flag
 ) {
     var name by remember { mutableStateOf("") }
     var contact by remember { mutableStateOf("") }
     var selectedPlan by remember { mutableStateOf("") }
     var startDate by remember { mutableStateOf(System.currentTimeMillis()) }
+    var expiryDate by remember { mutableStateOf(System.currentTimeMillis()) }
     var gender by remember { mutableStateOf("") }
     var photoUri by remember { mutableStateOf<Uri?>(null) }
     var tempUri by remember { mutableStateOf<Uri?>(null) }
@@ -61,28 +63,34 @@ fun AddEditMemberScreen(
 
     val context = LocalContext.current
 
-    LaunchedEffect(member) {
-        member?.let {
-            name = it.name
-            contact = it.contact
-            selectedPlan = it.plan
-            startDate = it.startDate
-            gender = it.gender ?: ""
-            photoUri = it.photoUri?.let(Uri::parse)
+    LaunchedEffect(member, isRenewal) {
+        if (member == null) {
+            // Adding new member → default to today
+            startDate = System.currentTimeMillis()
+            expiryDate = calculateExpiryDate(startDate, selectedPlan)
+        } else {
+            // Editing existing
+            name = member.name
+            contact = member.contact
+            selectedPlan = member.plan
+            startDate = member.startDate
+            expiryDate = member.expiryDate
+            gender = member.gender ?: ""
+            photoUri = member.photoUri?.let(Uri::parse)
+
+            // If in renewal mode → default start = old expiry
+            if (isRenewal) {
+                startDate = member.expiryDate
+                expiryDate = calculateExpiryDate(startDate, selectedPlan)
+            }
         }
     }
 
-    // Camera launcher
+    // === CAMERA + GALLERY LAUNCHERS ===
     val cameraLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.TakePicture(),
-        onResult = { success ->
-            if (success) {
-                photoUri = tempUri
-            }
-        }
+        onResult = { success -> if (success) photoUri = tempUri }
     )
-
-    // Camera permission
     val cameraPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
         onResult = { granted ->
@@ -96,8 +104,6 @@ fun AddEditMemberScreen(
             }
         }
     )
-
-    // Gallery launcher with persistable permission
     val galleryLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),
         onResult = { uri: Uri? ->
@@ -112,8 +118,6 @@ fun AddEditMemberScreen(
             }
         }
     )
-
-    // Storage permission
     val storagePermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
         onResult = { granted ->
@@ -130,17 +134,13 @@ fun AddEditMemberScreen(
                 != PackageManager.PERMISSION_GRANTED
             ) {
                 storagePermissionLauncher.launch(Manifest.permission.READ_MEDIA_IMAGES)
-            } else {
-                galleryLauncher.launch(arrayOf("image/*"))
-            }
+            } else galleryLauncher.launch(arrayOf("image/*"))
         } else if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
             if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_EXTERNAL_STORAGE)
                 != PackageManager.PERMISSION_GRANTED
             ) {
                 storagePermissionLauncher.launch(Manifest.permission.READ_EXTERNAL_STORAGE)
-            } else {
-                galleryLauncher.launch(arrayOf("image/*"))
-            }
+            } else galleryLauncher.launch(arrayOf("image/*"))
         } else {
             galleryLauncher.launch(arrayOf("image/*"))
         }
@@ -159,17 +159,33 @@ fun AddEditMemberScreen(
         }
     }
 
-    // Date picker
-    val calendar = Calendar.getInstance().apply { timeInMillis = startDate }
-    val datePickerDialog = DatePickerDialog(
+    // === DATE PICKERS ===
+    // Start Date picker (recreated with latest startDate on recomposition)
+    val startCal = Calendar.getInstance().apply { timeInMillis = startDate }
+    val startDatePicker = DatePickerDialog(
         context,
-        { _: DatePicker, year: Int, month: Int, dayOfMonth: Int ->
-            val newDate = Calendar.getInstance().apply { set(year, month, dayOfMonth) }
+        { _: DatePicker, y: Int, m: Int, d: Int ->
+            val newDate = Calendar.getInstance().apply { set(y, m, d) }
             startDate = newDate.timeInMillis
+            // keep auto-calc when start changes
+            expiryDate = calculateExpiryDate(startDate, selectedPlan)
         },
-        calendar.get(Calendar.YEAR),
-        calendar.get(Calendar.MONTH),
-        calendar.get(Calendar.DAY_OF_MONTH)
+        startCal.get(Calendar.YEAR),
+        startCal.get(Calendar.MONTH),
+        startCal.get(Calendar.DAY_OF_MONTH)
+    )
+
+    // Expiry Date picker (manual override allowed)
+    val expiryCal = Calendar.getInstance().apply { timeInMillis = expiryDate }
+    val expiryDatePicker = DatePickerDialog(
+        context,
+        { _: DatePicker, y: Int, m: Int, d: Int ->
+            val newDate = Calendar.getInstance().apply { set(y, m, d) }
+            expiryDate = newDate.timeInMillis
+        },
+        expiryCal.get(Calendar.YEAR),
+        expiryCal.get(Calendar.MONTH),
+        expiryCal.get(Calendar.DAY_OF_MONTH)
     )
 
     val plans = (1..12).map { "$it Month${if (it > 1) "s" else ""}" }
@@ -179,17 +195,22 @@ fun AddEditMemberScreen(
 
     val isFormValid by remember {
         derivedStateOf {
-            name.isNotBlank() &&
-                    contact.isNotBlank() &&
-                    selectedPlan.isNotBlank() &&
-                    gender.isNotBlank()
+            name.isNotBlank() && contact.isNotBlank() && selectedPlan.isNotBlank() && gender.isNotBlank()
         }
     }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(if (member == null) "Add Member" else "Edit Member") },
+                title = {
+                    Text(
+                        when {
+                            member == null -> "Add Member"
+                            isRenewal -> "Renew Member"
+                            else -> "Edit Member"
+                        }
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -197,36 +218,44 @@ fun AddEditMemberScreen(
                 }
             )
         },
-        floatingActionButton = {
-            FloatingActionButton(
-                onClick = {
-                    val expiryDate = calculateExpiryDate(startDate, selectedPlan)
-                    val newOrUpdatedMember = member?.copy(
-                        name = name.trim(),
-                        contact = contact.trim(),
-                        plan = selectedPlan,
-                        startDate = startDate,
-                        expiryDate = expiryDate,
-                        gender = gender,
-                        photoUri = photoUri?.toString()
-                    ) ?: Member(
-                        name = name.trim(),
-                        contact = contact.trim(),
-                        plan = selectedPlan,
-                        startDate = startDate,
-                        expiryDate = expiryDate,
-                        gender = gender,
-                        photoUri = photoUri?.toString()
-                    )
-                    onSave(newOrUpdatedMember)
-                    navController.popBackStack()
-                },
-                containerColor = if (isFormValid) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
-            ) {
-                if (isFormValid) {
-                    Icon(Icons.Default.Save, contentDescription = "Save Member")
-                } else {
-                    Text("Save", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        bottomBar = {
+            if (isFormValid) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceEvenly
+                ) {
+                    Button(onClick = {
+                        // Save or update
+                        val updatedMember = (member?.copy(
+                            name = name.trim(),
+                            contact = contact.trim(),
+                            plan = selectedPlan,
+                            startDate = startDate,
+                            expiryDate = expiryDate,
+                            gender = gender,
+                            photoUri = photoUri?.toString()
+                        ) ?: Member(
+                            name = name.trim(),
+                            contact = contact.trim(),
+                            plan = selectedPlan,
+                            startDate = startDate,
+                            expiryDate = expiryDate,
+                            gender = gender,
+                            photoUri = photoUri?.toString()
+                        ))
+                        onSave(updatedMember)
+                        navController.popBackStack()
+                    }) {
+                        Text(
+                            when {
+                                member == null -> "Save"
+                                isRenewal -> "Renew"
+                                else -> "Update"
+                            }
+                        )
+                    }
                 }
             }
         }
@@ -240,7 +269,7 @@ fun AddEditMemberScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Photo picker
+            // Photo
             Box(
                 modifier = Modifier
                     .size(120.dp)
@@ -258,12 +287,7 @@ fun AddEditMemberScreen(
                         contentScale = ContentScale.Crop
                     )
                 } else {
-                    Icon(
-                        imageVector = Icons.Default.AddAPhoto,
-                        contentDescription = "Add Photo",
-                        modifier = Modifier.size(48.dp),
-                        tint = MaterialTheme.colorScheme.onSecondaryContainer
-                    )
+                    Icon(Icons.Default.AddAPhoto, contentDescription = "Add Photo", modifier = Modifier.size(48.dp))
                 }
             }
 
@@ -271,23 +295,18 @@ fun AddEditMemberScreen(
                 value = name,
                 onValueChange = { name = it },
                 label = { Text("Full Name") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true
+                modifier = Modifier.fillMaxWidth()
             )
-
             OutlinedTextField(
                 value = contact,
                 onValueChange = { contact = it },
-                label = { Text("Contact (Phone with Country Code)") },
+                label = { Text("Contact") },
                 modifier = Modifier.fillMaxWidth(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
-                singleLine = true
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone)
             )
 
-            ExposedDropdownMenuBox(
-                expanded = genderExpanded,
-                onExpandedChange = { genderExpanded = !genderExpanded }
-            ) {
+            // Gender
+            ExposedDropdownMenuBox(expanded = genderExpanded, onExpandedChange = { genderExpanded = !genderExpanded }) {
                 OutlinedTextField(
                     value = gender,
                     onValueChange = {},
@@ -298,26 +317,18 @@ fun AddEditMemberScreen(
                         .menuAnchor()
                         .fillMaxWidth()
                 )
-                ExposedDropdownMenu(
-                    expanded = genderExpanded,
-                    onDismissRequest = { genderExpanded = false }
-                ) {
+                ExposedDropdownMenu(expanded = genderExpanded, onDismissRequest = { genderExpanded = false }) {
                     genders.forEach { item ->
-                        DropdownMenuItem(
-                            text = { Text(item) },
-                            onClick = {
-                                gender = item
-                                genderExpanded = false
-                            }
-                        )
+                        DropdownMenuItem(text = { Text(item) }, onClick = {
+                            gender = item
+                            genderExpanded = false
+                        })
                     }
                 }
             }
 
-            ExposedDropdownMenuBox(
-                expanded = planExpanded,
-                onExpandedChange = { planExpanded = !planExpanded }
-            ) {
+            // Plan
+            ExposedDropdownMenuBox(expanded = planExpanded, onExpandedChange = { planExpanded = !planExpanded }) {
                 OutlinedTextField(
                     value = selectedPlan,
                     onValueChange = {},
@@ -328,15 +339,14 @@ fun AddEditMemberScreen(
                         .menuAnchor()
                         .fillMaxWidth()
                 )
-                ExposedDropdownMenu(
-                    expanded = planExpanded,
-                    onDismissRequest = { planExpanded = false }
-                ) {
+                ExposedDropdownMenu(expanded = planExpanded, onDismissRequest = { planExpanded = false }) {
                     plans.forEach { plan ->
                         DropdownMenuItem(
                             text = { Text(plan) },
                             onClick = {
                                 selectedPlan = plan
+                                // auto-calc when plan changes
+                                expiryDate = calculateExpiryDate(startDate, plan)
                                 planExpanded = false
                             }
                         )
@@ -344,22 +354,57 @@ fun AddEditMemberScreen(
                 }
             }
 
-            OutlinedTextField(
-                value = startDate.toDateString(),
-                onValueChange = {},
-                readOnly = true,
-                label = { Text("Start Date") },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { datePickerDialog.show() },
-                trailingIcon = {
-                    Icon(Icons.Default.DateRange, contentDescription = "Select Date")
-                }
-            )
+            // Start Date (TextField + overlay + clickable icon)
+            Box(modifier = Modifier.fillMaxWidth()) {
+                OutlinedTextField(
+                    value = startDate.toDateString(),
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text("Start Date") },
+                    modifier = Modifier
+                        .fillMaxWidth(),
+                    trailingIcon = {
+                        IconButton(onClick = { startDatePicker.show() }) {
+                            Icon(Icons.Default.DateRange, contentDescription = "Select Start Date")
+                        }
+                    }
+                )
+                // Invisible overlay to catch taps anywhere on the field
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .background(Color.Transparent)
+                        .clickable { startDatePicker.show() }
+                )
+            }
+
+            // Expiry Date (TextField + overlay + clickable icon)
+            Box(modifier = Modifier.fillMaxWidth()) {
+                OutlinedTextField(
+                    value = expiryDate.toDateString(),
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text("Expiry Date") },
+                    modifier = Modifier
+                        .fillMaxWidth(),
+                    trailingIcon = {
+                        IconButton(onClick = { expiryDatePicker.show() }) {
+                            Icon(Icons.Default.DateRange, contentDescription = "Select Expiry Date")
+                        }
+                    }
+                )
+                // Invisible overlay to catch taps anywhere on the field
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .background(Color.Transparent)
+                        .clickable { expiryDatePicker.show() }
+                )
+            }
         }
     }
 
-    // Compose AlertDialog for choosing photo source
+    // Photo picker dialog
     if (showPhotoPickerDialog) {
         AlertDialog(
             onDismissRequest = { showPhotoPickerDialog = false },
@@ -395,8 +440,7 @@ fun AddEditMemberScreen(
 
 fun grantUriPermissionsForCamera(context: Context, uri: Uri) {
     val cameraIntent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
-    val resInfoList =
-        context.packageManager.queryIntentActivities(cameraIntent, PackageManager.MATCH_DEFAULT_ONLY)
+    val resInfoList = context.packageManager.queryIntentActivities(cameraIntent, PackageManager.MATCH_DEFAULT_ONLY)
     for (resolveInfo in resInfoList) {
         val packageName = resolveInfo.activityInfo.packageName
         context.grantUriPermission(

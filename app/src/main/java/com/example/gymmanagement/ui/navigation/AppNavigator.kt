@@ -33,6 +33,7 @@ fun AppNavigator(application: GymManagementApplication) {
                 expiredMembers = expiredMembers
             )
         }
+
         composable("all_members_list") {
             val allMembers by viewModel.allMembers.collectAsState()
             AllMembersListScreen(
@@ -42,6 +43,7 @@ fun AppNavigator(application: GymManagementApplication) {
                 onExport = { uri -> viewModel.exportMembersToCsv(application, uri) }
             )
         }
+
         composable("active_members_list") {
             val members by viewModel.activeMembers.collectAsState()
             ActiveMembersListScreen(
@@ -49,6 +51,7 @@ fun AppNavigator(application: GymManagementApplication) {
                 members = members
             )
         }
+
         composable("expiring_members") {
             val members by viewModel.membersExpiringSoon.collectAsState()
             ExpiringMembersScreen(
@@ -56,6 +59,7 @@ fun AppNavigator(application: GymManagementApplication) {
                 members = members
             )
         }
+
         composable("expired_members_list") {
             val members by viewModel.expiredMembers.collectAsState()
             ExpiredMembersListScreen(
@@ -63,6 +67,7 @@ fun AppNavigator(application: GymManagementApplication) {
                 members = members
             )
         }
+
         composable(
             route = "member_details/{memberId}",
             arguments = listOf(navArgument("memberId") { type = NavType.IntType })
@@ -76,20 +81,39 @@ fun AppNavigator(application: GymManagementApplication) {
                 onDelete = { if (member != null) viewModel.deleteMember(member!!) }
             )
         }
+
+        // add_edit_member now accepts both memberId and isRenew (bool) as query params
         composable(
-            route = "add_edit_member?memberId={memberId}",
-            arguments = listOf(navArgument("memberId") {
-                type = NavType.IntType
-                defaultValue = -1
-            })
+            route = "add_edit_member?memberId={memberId}&isRenew={isRenew}",
+            arguments = listOf(
+                navArgument("memberId") {
+                    type = NavType.IntType
+                    defaultValue = -1
+                },
+                navArgument("isRenew") {
+                    type = NavType.BoolType
+                    defaultValue = false
+                }
+            )
         ) { backStackEntry ->
             val memberId = backStackEntry.arguments?.getInt("memberId") ?: -1
-            val member by viewModel.getMemberById(memberId).collectAsState(initial = null)
+            val isRenew = backStackEntry.arguments?.getBoolean("isRenew") ?: false
+
+            // If memberId == -1 then we're creating a new member — pass null
+            val member: com.example.gymmanagement.data.database.Member? =
+                if (memberId == -1) {
+                    null
+                } else {
+                    // collect the flow for the requested member id
+                    val m by viewModel.getMemberById(memberId).collectAsState(initial = null)
+                    m
+                }
 
             AddEditMemberScreen(
                 navController = navController,
-                member = if (memberId == -1) null else member,
-                onSave = { memberToSave -> viewModel.addOrUpdateMember(memberToSave) }
+                member = member,
+                onSave = { memberToSave -> viewModel.addOrUpdateMember(memberToSave) },
+                isRenewal = isRenew
             )
         }
     }

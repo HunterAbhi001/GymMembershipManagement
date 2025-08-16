@@ -21,6 +21,7 @@ import com.example.gymmanagement.ui.common.MemberListItem
 import com.example.gymmanagement.ui.theme.Green
 import com.example.gymmanagement.ui.theme.Orange
 import com.example.gymmanagement.ui.theme.Red
+import com.example.gymmanagement.ui.utils.DateUtils
 import com.example.gymmanagement.ui.utils.sendSmsMessage
 import com.example.gymmanagement.ui.utils.sendWhatsAppMessage
 import java.util.concurrent.TimeUnit
@@ -34,7 +35,18 @@ fun DashboardScreen(
     expiredMembers: List<Member>
 ) {
     val context = LocalContext.current
-    val activeMemberCount = allMembers.count { it.expiryDate >= System.currentTimeMillis() }
+
+    val todayStart = DateUtils.startOfDayMillis()
+    val todayEnd = DateUtils.endOfDayMillis()
+    val sevenDaysEnd = DateUtils.endOfDayMillis(todayStart + TimeUnit.DAYS.toMillis(7))
+
+    val activeMemberCount = allMembers.count { it.expiryDate >= todayStart }
+
+    // Use the VM-provided membersExpiringSoon (already computed to cover today..7 days).
+    // For dashboard preview, just show the VM list (which now uses startOfDay semantics).
+    val previewExpiring = membersExpiringSoon
+
+    val fixedExpired = allMembers.filter { it.expiryDate < todayStart }
 
     Scaffold(
         topBar = {
@@ -70,7 +82,7 @@ fun DashboardScreen(
                 )
                 StatCard(
                     label = "Expiring Soon",
-                    value = membersExpiringSoon.size.toString(),
+                    value = previewExpiring.size.toString(),
                     modifier = Modifier.weight(1f),
                     color = Orange,
                     onClick = { navController.navigate("expiring_members") }
@@ -78,7 +90,7 @@ fun DashboardScreen(
             }
             StatCard(
                 label = "Expired Members",
-                value = expiredMembers.size.toString(),
+                value = fixedExpired.size.toString(),
                 modifier = Modifier.fillMaxWidth(),
                 color = Red,
                 onClick = { navController.navigate("expired_members_list") }
@@ -91,17 +103,29 @@ fun DashboardScreen(
             // Expiring Soon List
             Text("Memberships Expiring Soon", style = MaterialTheme.typography.titleLarge)
 
-            if (membersExpiringSoon.isEmpty()) {
-                Box(modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp), contentAlignment = Alignment.Center) {
+            if (previewExpiring.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 16.dp),
+                    contentAlignment = Alignment.Center
+                ) {
                     Text("No memberships are expiring soon.")
                 }
             } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    items(membersExpiringSoon.take(3)) { member -> // Show a preview of 3
-                        val daysRemaining = TimeUnit.DAYS.convert(member.expiryDate - System.currentTimeMillis(), TimeUnit.MILLISECONDS)
-                        val message = "Hi ${member.name}, your gym membership is expiring in $daysRemaining days. Please contact us to renew."
+                    items(previewExpiring.take(3)) { member ->
+                        val todayStartLocal = DateUtils.startOfDayMillis()
+                        val diff = member.expiryDate - todayStartLocal
+                        val daysRemaining = TimeUnit.DAYS.convert(diff, TimeUnit.MILLISECONDS).coerceAtLeast(0)
+
+                        val message = if (daysRemaining == 0L) {
+                            "Hi ${member.name}, your gym membership expires today. Please renew to continue."
+                        } else {
+                            "Hi ${member.name}, your gym membership is expiring in $daysRemaining days. Please contact us to renew."
+                        }
 
                         MemberListItem(
                             member = member,

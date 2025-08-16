@@ -65,7 +65,9 @@ fun MemberDetailScreen(
                     }) {
                         Icon(AppIcons.WhatsApp, contentDescription = "Send WhatsApp Message")
                     }
-                    IconButton(onClick = { navController.navigate("add_edit_member?memberId=${member?.id}") }) {
+                    IconButton(onClick = {
+                        navController.navigate("add_edit_member?memberId=${member?.id}")
+                    }) {
                         Icon(Icons.Default.Edit, contentDescription = "Edit Member")
                     }
                     IconButton(onClick = { showDeleteDialog = true }) {
@@ -88,9 +90,23 @@ fun MemberDetailScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(paddingValues)
-                    .padding(16.dp)
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 DetailCard(member, onImageClick = { showFullImage = true })
+
+                // Show Renew button ONLY if member is expired
+                if (member.expiryDate < System.currentTimeMillis()) {
+                    Button(
+                        onClick = {
+                            navController.navigate("add_edit_member?memberId=${member.id}&isRenew=true")
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Green),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Renew Membership")
+                    }
+                }
             }
         }
     }
