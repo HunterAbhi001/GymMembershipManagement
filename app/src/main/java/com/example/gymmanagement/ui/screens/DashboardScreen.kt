@@ -97,7 +97,7 @@ fun DashboardScreen(
             )
 
             Button(onClick = { navController.navigate("all_members_list") }, modifier = Modifier.fillMaxWidth()) {
-                Text("Manage All Members (Import/Export)")
+                Text("Manage All Members")
             }
 
             // Expiring Soon List

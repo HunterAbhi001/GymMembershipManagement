@@ -12,5 +12,13 @@ data class Member(
     val startDate: Long,
     val expiryDate: Long,
     val gender: String? = null,
-    val photoUri: String? = null
+    val photoUri: String? = null,
+
+    // New fields
+    val batch: String? = null,
+    val price: Double? = null,
+    val discount: Double? = null,
+    val finalAmount: Double? = null,
+    val purchaseDate: Long? = startDate,
+    val dueAdvance: Double? = null
 )

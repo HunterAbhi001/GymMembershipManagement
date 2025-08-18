@@ -31,6 +31,8 @@ import com.example.gymmanagement.ui.theme.Red
 import com.example.gymmanagement.ui.utils.DateUtils.toDateString
 import com.example.gymmanagement.ui.utils.sendSmsMessage
 import com.example.gymmanagement.ui.utils.sendWhatsAppMessage
+import java.text.NumberFormat
+import java.util.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -42,6 +44,16 @@ fun MemberDetailScreen(
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showFullImage by remember { mutableStateOf(false) }
     val context = LocalContext.current
+
+    // start-of-day to treat "expiring today" as not expired
+    val todayStart = remember {
+        Calendar.getInstance().apply {
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+    }
 
     Scaffold(
         topBar = {
@@ -71,11 +83,7 @@ fun MemberDetailScreen(
                         Icon(Icons.Default.Edit, contentDescription = "Edit Member")
                     }
                     IconButton(onClick = { showDeleteDialog = true }) {
-                        Icon(
-                            Icons.Default.Delete,
-                            contentDescription = "Delete Member",
-                            tint = MaterialTheme.colorScheme.error
-                        )
+                        Icon(Icons.Default.Delete, contentDescription = "Delete Member", tint = MaterialTheme.colorScheme.error)
                     }
                 }
             )
@@ -86,24 +94,12 @@ fun MemberDetailScreen(
                 CircularProgressIndicator()
             }
         } else {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(paddingValues)
-                    .padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                DetailCard(member, onImageClick = { showFullImage = true })
+            Column(modifier = Modifier.fillMaxSize().padding(paddingValues).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                val isExpired = member.expiryDate < todayStart
+                DetailCard(member, onImageClick = { showFullImage = true }, isExpired = isExpired)
 
-                // Show Renew button ONLY if member is expired
-                if (member.expiryDate < System.currentTimeMillis()) {
-                    Button(
-                        onClick = {
-                            navController.navigate("add_edit_member?memberId=${member.id}&isRenew=true")
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = Green),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
+                if (isExpired) {
+                    Button(onClick = { navController.navigate("add_edit_member?memberId=${member.id}&isRenew=true") }, colors = ButtonDefaults.buttonColors(containerColor = Green), modifier = Modifier.fillMaxWidth()) {
                         Text("Renew Membership")
                     }
                 }
@@ -117,78 +113,53 @@ fun MemberDetailScreen(
             title = { Text("Delete Member") },
             text = { Text("Are you sure you want to delete ${member?.name}? This action cannot be undone.") },
             confirmButton = {
-                Button(
-                    onClick = {
-                        onDelete()
-                        showDeleteDialog = false
-                        navController.popBackStack()
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-                ) {
+                Button(onClick = { onDelete(); showDeleteDialog = false; navController.popBackStack() }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) {
                     Text("Delete")
                 }
             },
             dismissButton = {
-                Button(onClick = { showDeleteDialog = false }) {
-                    Text("Cancel")
-                }
+                Button(onClick = { showDeleteDialog = false }) { Text("Cancel") }
             }
         )
     }
 
-    // Full-screen image preview
     if (showFullImage && member?.photoUri != null) {
         Dialog(onDismissRequest = { showFullImage = false }) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black)
-                    .clickable { showFullImage = false },
-                contentAlignment = Alignment.Center
-            ) {
-                AsyncImage(
-                    model = member.photoUri,
-                    contentDescription = "Full Image",
-                    contentScale = ContentScale.Fit,
-                    placeholder = rememberVectorPainter(Icons.Default.Person),
-                    error = rememberVectorPainter(Icons.Default.Person),
-                    modifier = Modifier.fillMaxWidth()
-                )
+            Box(modifier = Modifier.fillMaxSize().background(Color.Black).clickable { showFullImage = false }, contentAlignment = Alignment.Center) {
+                AsyncImage(model = member.photoUri, contentDescription = "Full Image", contentScale = ContentScale.Fit, placeholder = rememberVectorPainter(Icons.Default.Person), error = rememberVectorPainter(Icons.Default.Person), modifier = Modifier.fillMaxWidth())
             }
         }
     }
 }
 
 @Composable
-fun DetailCard(member: Member, onImageClick: () -> Unit) {
+fun DetailCard(member: Member, onImageClick: () -> Unit, isExpired: Boolean) {
+    val nf = NumberFormat.getCurrencyInstance(Locale.getDefault())
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                AsyncImage(
-                    model = member.photoUri,
-                    contentDescription = "Member Photo",
-                    modifier = Modifier
-                        .size(80.dp)
-                        .clip(CircleShape)
-                        .clickable { onImageClick() },
-                    contentScale = ContentScale.Crop,
-                    placeholder = rememberVectorPainter(Icons.Default.Person),
-                    error = rememberVectorPainter(Icons.Default.Person)
-                )
+                AsyncImage(model = member.photoUri, contentDescription = "Member Photo", modifier = Modifier.size(80.dp).clip(CircleShape).clickable { onImageClick() }, contentScale = ContentScale.Crop, placeholder = rememberVectorPainter(Icons.Default.Person), error = rememberVectorPainter(Icons.Default.Person))
                 Spacer(modifier = Modifier.width(16.dp))
                 Column {
-                    val status = if (member.expiryDate >= System.currentTimeMillis()) "Active" else "Expired"
-                    val statusColor = if (status == "Active") Green else Red
+                    val status = if (!isExpired) "Active" else "Expired"
+                    val statusColor = if (!isExpired) Green else Red
                     Text(member.name, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                     Text(member.contact, style = MaterialTheme.typography.bodyLarge)
                     Text(status, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = statusColor)
                 }
             }
             Divider(modifier = Modifier.padding(vertical = 8.dp))
+
             InfoRow("Gender", member.gender ?: "Not specified")
             InfoRow("Plan", member.plan)
+            InfoRow("Batch", member.batch ?: "—")
             InfoRow("Start Date", member.startDate.toDateString())
             InfoRow("Expiry Date", member.expiryDate.toDateString())
+            InfoRow("Purchase Date", member.purchaseDate?.toDateString() ?: "—")
+            InfoRow("Price", member.price?.let { nf.format(it) } ?: "—")
+            InfoRow("Discount", member.discount?.let { nf.format(it) } ?: "—")
+            InfoRow("Final Amount", member.finalAmount?.let { nf.format(it) } ?: "—")
+            InfoRow("Due / Advance", member.dueAdvance?.let { nf.format(it) } ?: "—")
         }
     }
 }
