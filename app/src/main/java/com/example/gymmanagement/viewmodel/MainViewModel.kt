@@ -21,11 +21,6 @@ class MainViewModel(
     private val _searchQuery = MutableStateFlow("")
     val searchQuery = _searchQuery.asStateFlow()
 
-    /**
-     * allMembers returns the list optionally filtered by the search query.
-     * Filtering is applied here for the app-wide "all members" usage, but
-     * the All Members screen may also do local filtering if desired.
-     */
     val allMembers: StateFlow<List<Member>> = searchQuery
         .flatMapLatest { query ->
             if (query.isBlank()) {
@@ -38,9 +33,6 @@ class MainViewModel(
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    /**
-     * Active members are those whose expiryDate is >= start of today.
-     */
     val activeMembers: StateFlow<List<Member>> = allMembers
         .map { members ->
             val todayStart = DateUtils.startOfDayMillis()
@@ -48,26 +40,61 @@ class MainViewModel(
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    /**
-     * Members expiring soon: query DAO for the range [todayStart .. sevenDaysLaterEnd]
-     */
     val membersExpiringSoon: StateFlow<List<Member>> = flow {
         val todayStart = DateUtils.startOfDayMillis()
         val sevenDaysLaterEnd = DateUtils.endOfDayMillis(System.currentTimeMillis() + TimeUnit.DAYS.toMillis(7))
         emitAll(memberDao.getMembersExpiringSoon(todayStart, sevenDaysLaterEnd))
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    /**
-     * Expired members are those whose expiryDate is strictly before today's start.
-     */
     val expiredMembers: StateFlow<List<Member>> = allMembers
         .map { members ->
             val todayStart = DateUtils.startOfDayMillis()
             members
                 .filter { it.expiryDate < todayStart }
-                .sortedByDescending { it.expiryDate } // most recently expired first
+                .sortedByDescending { it.expiryDate }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val todaysRevenue: StateFlow<Double> = allMembers
+        .map { members ->
+            val todayStart = DateUtils.startOfDayMillis()
+            val todayEnd = DateUtils.endOfDayMillis()
+            members
+                .filter { it.purchaseDate in todayStart..todayEnd }
+                .sumOf { it.finalAmount ?: 0.0 }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
+
+    val todaysRevenueMembers: StateFlow<List<Member>> = allMembers
+        .map { members ->
+            val todayStart = DateUtils.startOfDayMillis()
+            val todayEnd = DateUtils.endOfDayMillis()
+            members.filter { it.purchaseDate in todayStart..todayEnd }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val totalBalance: StateFlow<Double> = allMembers
+        .map { members ->
+            members.sumOf { it.finalAmount ?: 0.0 }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
+
+    val duesAndAdvanceMembers: StateFlow<List<Member>> = allMembers
+        .map { members ->
+            members.filter { (it.dueAdvance ?: 0.0) != 0.0 }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // --- NEW: Calculate total outstanding dues ---
+    val totalDues: StateFlow<Double> = allMembers
+        .map { members ->
+            // Dues are represented by negative numbers in the 'dueAdvance' field
+            members
+                .filter { (it.dueAdvance ?: 0.0) < 0 }
+                .sumOf { it.dueAdvance ?: 0.0 }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
+
 
     fun onSearchQueryChange(query: String) {
         _searchQuery.value = query
@@ -89,17 +116,14 @@ class MainViewModel(
                 val result = CsvUtils.readMembersFromCsv(context, uri)
                 val members = result.first
                 val failures = result.second
-
                 if (members.isNotEmpty()) {
                     memberDao.insertAll(members)
                 }
-
                 withContext(Dispatchers.Main) {
                     val successMessage = if (members.isNotEmpty()) "${members.size} members imported." else "No new members imported."
                     val failureMessage = if (failures > 0) " $failures rows failed due to formatting issues." else ""
                     Toast.makeText(context, successMessage + failureMessage, Toast.LENGTH_LONG).show()
                 }
-
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
                     Toast.makeText(context, "Error importing file: ${e.message}", Toast.LENGTH_LONG).show()
@@ -111,7 +135,7 @@ class MainViewModel(
     fun exportMembersToCsv(context: Context, uri: Uri) = viewModelScope.launch {
         withContext(Dispatchers.IO) {
             try {
-                val members = allMembers.first() // Get current list of members
+                val members = allMembers.first()
                 CsvUtils.writeMembersToCsv(context, uri, members)
                 withContext(Dispatchers.Main) {
                     Toast.makeText(context, "Exported successfully to Documents folder.", Toast.LENGTH_LONG).show()

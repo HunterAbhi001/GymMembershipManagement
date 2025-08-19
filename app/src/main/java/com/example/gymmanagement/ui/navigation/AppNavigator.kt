@@ -26,19 +26,40 @@ fun AppNavigator(application: GymManagementApplication) {
             val allMembers by viewModel.allMembers.collectAsState()
             val membersExpiringSoon by viewModel.membersExpiringSoon.collectAsState()
             val expiredMembers by viewModel.expiredMembers.collectAsState()
+            val todaysRevenue by viewModel.todaysRevenue.collectAsState()
+            val totalBalance by viewModel.totalBalance.collectAsState()
+            val totalDues by viewModel.totalDues.collectAsState()
+
             DashboardScreen(
                 navController = navController,
                 allMembers = allMembers,
                 membersExpiringSoon = membersExpiringSoon,
                 expiredMembers = expiredMembers,
-                onDeleteMember = { member -> viewModel.deleteMember(member) }
+                onDeleteMember = { member -> viewModel.deleteMember(member) },
+                todaysRevenue = todaysRevenue,
+                totalBalance = totalBalance,
+                totalDues = totalDues
             )
         }
 
-        // --- NEW: Route for the Search Screen ---
+        composable("todays_revenue") {
+            val todaysMembers by viewModel.todaysRevenueMembers.collectAsState()
+            TodaysRevenueScreen(
+                navController = navController,
+                todaysMembers = todaysMembers
+            )
+        }
+
+        composable("dues_advance") {
+            val duesAndAdvanceMembers by viewModel.duesAndAdvanceMembers.collectAsState()
+            DuesAndAdvanceScreen(
+                navController = navController,
+                duesAndAdvanceMembers = duesAndAdvanceMembers
+            )
+        }
+
         composable("search_members") {
             val searchQuery by viewModel.searchQuery.collectAsState()
-            // The `allMembers` flow is already filtered by the search query in your ViewModel
             val searchedMembers by viewModel.allMembers.collectAsState()
 
             SearchScreen(
@@ -48,8 +69,6 @@ fun AppNavigator(application: GymManagementApplication) {
                 onSearchQueryChange = { query -> viewModel.onSearchQueryChange(query) }
             )
         }
-
-        // ... other routes ...
 
         composable("all_members_list") {
             val allMembers by viewModel.allMembers.collectAsState()
@@ -99,8 +118,10 @@ fun AppNavigator(application: GymManagementApplication) {
             )
         }
 
+        // --- FIX: Reverted route to use only optional query parameters for flexibility ---
+        // This will fix the crash from the MemberDetailScreen.
         composable(
-            route = "add_edit_member/{memberId}?isRenewal={isRenewal}",
+            route = "add_edit_member?memberId={memberId}&isRenewal={isRenewal}",
             arguments = listOf(
                 navArgument("memberId") {
                     type = NavType.IntType

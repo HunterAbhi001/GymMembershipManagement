@@ -1,61 +1,150 @@
 package com.example.gymmanagement.ui.screens
 
+import android.app.DatePickerDialog
 import android.net.Uri
+import android.widget.DatePicker
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.example.gymmanagement.data.database.Member
 import com.example.gymmanagement.ui.common.MemberListItem
+import com.example.gymmanagement.ui.utils.DateUtils
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
+
+// --- Data classes to hold our filter and sort state ---
+data class FilterState(
+    val statuses: Set<String> = emptySet(),
+    val balanceOption: String = "All",
+    val dateRangeOption: String = "All",
+    val customStartDate: Long? = null,
+    val customEndDate: Long? = null
+)
+
+data class SortState(
+    val option: String = "Name (A-Z)"
+)
+
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AllMembersListScreen(
     navController: NavController,
-    allMembers: List<Member>, // now expecting unfiltered list
+    allMembers: List<Member>,
     onImport: (Uri) -> Unit,
     onExport: (Uri) -> Unit
 ) {
     var searchQuery by remember { mutableStateOf("") }
+    var menuExpanded by remember { mutableStateOf(false) }
+    var showFilterSheet by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+
+    // --- FIX: Create a sheet state that skips the partial expand state ---
+    val sheetState = rememberModalBottomSheetState(
+        skipPartiallyExpanded = true
+    )
+
+    var filterState by remember { mutableStateOf(FilterState()) }
+    var sortState by remember { mutableStateOf(SortState()) }
+
 
     val importLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent(),
-        onResult = { uri: Uri? ->
-            uri?.let { onImport(it) }
-        }
+        onResult = { uri: Uri? -> uri?.let { onImport(it) } }
     )
 
     val exportLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("text/csv"),
-        onResult = { uri: Uri? ->
-            uri?.let { onExport(it) }
-        }
+        onResult = { uri: Uri? -> uri?.let { onExport(it) } }
     )
 
-    var menuExpanded by remember { mutableStateOf(false) }
+    val processedMembers = remember(searchQuery, allMembers, filterState, sortState) {
+        val todayStart = DateUtils.startOfDayMillis()
+        var members = allMembers
 
-    // 🔹 Filter locally so other screens remain unaffected
-    val filteredMembers = remember(searchQuery, allMembers) {
-        if (searchQuery.isBlank()) {
-            allMembers
-        } else {
-            allMembers.filter { member ->
+        // 1. Apply Search Query
+        if (searchQuery.isNotBlank()) {
+            members = members.filter { member ->
                 member.name.contains(searchQuery, ignoreCase = true) ||
                         member.contact.contains(searchQuery, ignoreCase = true)
             }
         }
+
+        // 2. Apply Status Filters
+        if (filterState.statuses.isNotEmpty()) {
+            members = members.filter { member ->
+                val isActive = member.expiryDate >= todayStart
+                val isExpired = member.expiryDate < todayStart
+                (filterState.statuses.contains("Active") && isActive) ||
+                        (filterState.statuses.contains("Expired") && isExpired)
+            }
+        }
+
+        // 3. Apply Balance Filter
+        when (filterState.balanceOption) {
+            "Has Dues" -> members = members.filter { (it.dueAdvance ?: 0.0) < 0 }
+            "Has Advance" -> members = members.filter { (it.dueAdvance ?: 0.0) > 0 }
+        }
+
+        // 4. Apply Date Range Filter
+        val calendar = Calendar.getInstance()
+        val startDate = when (filterState.dateRangeOption) {
+            "Last 1 Month" -> {
+                calendar.add(Calendar.MONTH, -1)
+                calendar.timeInMillis
+            }
+            "Last 2 Months" -> {
+                calendar.add(Calendar.MONTH, -2)
+                calendar.timeInMillis
+            }
+            "Custom" -> filterState.customStartDate
+            else -> null
+        }
+        val endDate = if (filterState.dateRangeOption == "Custom") filterState.customEndDate else null
+
+        startDate?.let { start ->
+            members = members.filter { it.startDate >= start }
+        }
+        endDate?.let { end ->
+            members = members.filter { it.startDate <= end }
+        }
+
+
+        // 5. Apply Sorting
+        members.sortedWith(
+            when (sortState.option) {
+                "Name (A-Z)" -> compareBy { it.name }
+                "Name (Z-A)" -> compareByDescending { it.name }
+                "Expiry (Soonest First)" -> compareBy { it.expiryDate }
+                "Expiry (Latest First)" -> compareByDescending { it.expiryDate }
+                "Dues (Highest First)" -> compareBy { it.dueAdvance }
+                else -> compareBy { it.name }
+            }
+        )
     }
 
     Scaffold(
@@ -68,6 +157,9 @@ fun AllMembersListScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = { showFilterSheet = true }) {
+                        Icon(Icons.Default.FilterList, contentDescription = "Filter and Sort")
+                    }
                     IconButton(onClick = { menuExpanded = true }) {
                         Icon(Icons.Default.MoreVert, contentDescription = "More Options")
                     }
@@ -110,13 +202,223 @@ fun AllMembersListScreen(
                     .padding(16.dp)
             )
             LazyColumn(modifier = Modifier.fillMaxSize()) {
-                items(filteredMembers) { member ->
+                items(processedMembers) { member ->
                     MemberListItem(
                         member = member,
                         onClick = { navController.navigate("member_details/${member.id}") }
                     )
                 }
             }
+        }
+    }
+
+    if (showFilterSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showFilterSheet = false },
+            // --- FIX: Pass the sheet state to the bottom sheet ---
+            sheetState = sheetState
+        ) {
+            FilterSortSheetContent(
+                currentFilterState = filterState,
+                currentSortState = sortState,
+                onApply = { newFilter, newSort ->
+                    scope.launch {
+                        filterState = newFilter
+                        sortState = newSort
+                        sheetState.hide()
+                    }.invokeOnCompletion {
+                        if (!sheetState.isVisible) {
+                            showFilterSheet = false
+                        }
+                    }
+                },
+                onClear = {
+                    scope.launch {
+                        filterState = FilterState()
+                        sortState = SortState()
+                        sheetState.hide()
+                    }.invokeOnCompletion {
+                        if (!sheetState.isVisible) {
+                            showFilterSheet = false
+                        }
+                    }
+                }
+            )
+        }
+    }
+}
+
+@Composable
+private fun FilterSortSheetContent(
+    currentFilterState: FilterState,
+    currentSortState: SortState,
+    onApply: (FilterState, SortState) -> Unit,
+    onClear: () -> Unit
+) {
+    var tempFilters by remember { mutableStateOf(currentFilterState) }
+    var tempSort by remember { mutableStateOf(currentSortState) }
+
+    val statusOptions = listOf("Active", "Expired")
+    val balanceOptions = listOf("All", "Has Dues", "Has Advance")
+    val dateRangeOptions = listOf("All", "Last 1 Month", "Last 2 Months", "Custom")
+    val sortOptions = listOf("Name (A-Z)", "Name (Z-A)", "Expiry (Soonest First)", "Expiry (Latest First)", "Dues (Highest First)")
+
+    // --- FIX: Added verticalScroll to handle content overflow on small screens ---
+    Column(
+        modifier = Modifier
+            .padding(16.dp)
+            .navigationBarsPadding()
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Text("Filter By", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+
+        Text("Status", style = MaterialTheme.typography.titleMedium)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            statusOptions.forEach { status ->
+                val isSelected = tempFilters.statuses.contains(status)
+                FilterChip(
+                    selected = isSelected,
+                    onClick = {
+                        val newStatuses = tempFilters.statuses.toMutableSet()
+                        if (isSelected) newStatuses.remove(status) else newStatuses.add(status)
+                        tempFilters = tempFilters.copy(statuses = newStatuses)
+                    },
+                    label = { Text(status) }
+                )
+            }
+        }
+
+        Text("Balance", style = MaterialTheme.typography.titleMedium)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            balanceOptions.forEach { option ->
+                val isSelected = tempFilters.balanceOption == option
+                FilterChip(
+                    selected = isSelected,
+                    onClick = { tempFilters = tempFilters.copy(balanceOption = option) },
+                    label = { Text(option) }
+                )
+            }
+        }
+
+        Text("Joining Date", style = MaterialTheme.typography.titleMedium)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            dateRangeOptions.forEach { option ->
+                FilterChip(
+                    selected = tempFilters.dateRangeOption == option,
+                    onClick = { tempFilters = tempFilters.copy(dateRangeOption = option) },
+                    label = { Text(option) }
+                )
+            }
+        }
+
+        if (tempFilters.dateRangeOption == "Custom") {
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                DatePickerField(
+                    label = "Start Date",
+                    date = tempFilters.customStartDate,
+                    onDateSelected = { tempFilters = tempFilters.copy(customStartDate = it) },
+                    modifier = Modifier.weight(1f)
+                )
+                DatePickerField(
+                    label = "End Date",
+                    date = tempFilters.customEndDate,
+                    onDateSelected = { tempFilters = tempFilters.copy(customEndDate = it) },
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+
+        Divider(modifier = Modifier.padding(vertical = 8.dp))
+
+        Text("Sort By", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+
+        Column {
+            sortOptions.forEach { option ->
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .toggleable(
+                            value = tempSort.option == option,
+                            onValueChange = { tempSort = tempSort.copy(option = option) },
+                            role = Role.RadioButton
+                        )
+                        .padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    RadioButton(
+                        selected = tempSort.option == option,
+                        onClick = null
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(option)
+                }
+            }
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            OutlinedButton(
+                onClick = onClear,
+                modifier = Modifier.weight(1f)
+            ) {
+                Text("Clear")
+            }
+            Button(
+                onClick = { onApply(tempFilters, tempSort) },
+                modifier = Modifier.weight(1f)
+            ) {
+                Text("Apply")
+            }
+        }
+    }
+}
+
+@Composable
+private fun DatePickerField(
+    label: String,
+    date: Long?,
+    onDateSelected: (Long) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val calendar = Calendar.getInstance()
+    date?.let { calendar.timeInMillis = it }
+
+    val datePickerDialog = DatePickerDialog(
+        context,
+        { _: DatePicker, year: Int, month: Int, dayOfMonth: Int ->
+            val newDate = Calendar.getInstance().apply { set(year, month, dayOfMonth) }
+            onDateSelected(newDate.timeInMillis)
+        },
+        calendar.get(Calendar.YEAR),
+        calendar.get(Calendar.MONTH),
+        calendar.get(Calendar.DAY_OF_MONTH)
+    )
+
+    Box(modifier = modifier) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f), RoundedCornerShape(4.dp))
+                .clickable { datePickerDialog.show() }
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column {
+                Text(label, style = MaterialTheme.typography.bodySmall)
+                Text(
+                    text = date?.let { SimpleDateFormat("dd MMM yyyy", Locale.getDefault()).format(Date(it)) } ?: "Select",
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+            Icon(Icons.Default.DateRange, contentDescription = "Select Date")
         }
     }
 }
