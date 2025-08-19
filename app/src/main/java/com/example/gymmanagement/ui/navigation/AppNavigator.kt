@@ -30,9 +30,26 @@ fun AppNavigator(application: GymManagementApplication) {
                 navController = navController,
                 allMembers = allMembers,
                 membersExpiringSoon = membersExpiringSoon,
-                expiredMembers = expiredMembers
+                expiredMembers = expiredMembers,
+                onDeleteMember = { member -> viewModel.deleteMember(member) }
             )
         }
+
+        // --- NEW: Route for the Search Screen ---
+        composable("search_members") {
+            val searchQuery by viewModel.searchQuery.collectAsState()
+            // The `allMembers` flow is already filtered by the search query in your ViewModel
+            val searchedMembers by viewModel.allMembers.collectAsState()
+
+            SearchScreen(
+                navController = navController,
+                searchedMembers = searchedMembers,
+                searchQuery = searchQuery,
+                onSearchQueryChange = { query -> viewModel.onSearchQueryChange(query) }
+            )
+        }
+
+        // ... other routes ...
 
         composable("all_members_list") {
             val allMembers by viewModel.allMembers.collectAsState()
@@ -82,29 +99,26 @@ fun AppNavigator(application: GymManagementApplication) {
             )
         }
 
-        // add_edit_member now accepts both memberId and isRenew (bool) as query params
         composable(
-            route = "add_edit_member?memberId={memberId}&isRenew={isRenew}",
+            route = "add_edit_member/{memberId}?isRenewal={isRenewal}",
             arguments = listOf(
                 navArgument("memberId") {
                     type = NavType.IntType
                     defaultValue = -1
                 },
-                navArgument("isRenew") {
+                navArgument("isRenewal") {
                     type = NavType.BoolType
                     defaultValue = false
                 }
             )
         ) { backStackEntry ->
             val memberId = backStackEntry.arguments?.getInt("memberId") ?: -1
-            val isRenew = backStackEntry.arguments?.getBoolean("isRenew") ?: false
+            val isRenewal = backStackEntry.arguments?.getBoolean("isRenewal") ?: false
 
-            // If memberId == -1 then we're creating a new member — pass null
             val member: com.example.gymmanagement.data.database.Member? =
                 if (memberId == -1) {
                     null
                 } else {
-                    // collect the flow for the requested member id
                     val m by viewModel.getMemberById(memberId).collectAsState(initial = null)
                     m
                 }
@@ -113,7 +127,7 @@ fun AppNavigator(application: GymManagementApplication) {
                 navController = navController,
                 member = member,
                 onSave = { memberToSave -> viewModel.addOrUpdateMember(memberToSave) },
-                isRenewal = isRenew
+                isRenewal = isRenewal
             )
         }
     }

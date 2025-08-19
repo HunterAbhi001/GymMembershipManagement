@@ -13,3 +13,15 @@ val Pink40 = Color(0xFF7D5260)
 val Green = Color(0xFF4CAF50)
 val Orange = Color(0xFFFF9800)
 val Red = Color(0xFFF44336)
+
+// Dark Theme Palette
+val DarkBackground = Color(0xFF121212)
+val SurfaceDark = Color(0xFF1E1E1E) // For Cards and surfaces
+val PrimaryDark = Color(0xFFBB86FC) // A nice purple for accents
+val OnSurfaceDark = Color(0xFFFFFFFF) // White text
+val OnSurfaceVariantDark = Color(0xFFBDBDBD) // Gray text for subtitles
+
+// Status Colors
+val GreenAccent = Color(0xFF4CAF50)
+val AmberAccent = Color(0xFFFFC107)
+val RedAccent = Color(0xFFF44336)
