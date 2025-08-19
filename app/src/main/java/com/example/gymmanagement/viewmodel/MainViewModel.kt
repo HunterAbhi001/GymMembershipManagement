@@ -6,12 +6,16 @@ import android.widget.Toast
 import androidx.lifecycle.*
 import com.example.gymmanagement.data.database.Member
 import com.example.gymmanagement.data.database.MemberDao
+import com.example.gymmanagement.ui.screens.MonthlySignupData
+import com.example.gymmanagement.ui.screens.PlanPopularityData
 import com.example.gymmanagement.ui.utils.CsvUtils
 import com.example.gymmanagement.ui.utils.DateUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.text.SimpleDateFormat
+import java.util.*
 import java.util.concurrent.TimeUnit
 
 class MainViewModel(
@@ -85,15 +89,54 @@ class MainViewModel(
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    // --- NEW: Calculate total outstanding dues ---
     val totalDues: StateFlow<Double> = allMembers
         .map { members ->
-            // Dues are represented by negative numbers in the 'dueAdvance' field
             members
                 .filter { (it.dueAdvance ?: 0.0) < 0 }
                 .sumOf { it.dueAdvance ?: 0.0 }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
+
+    val netDuesAdvance: StateFlow<Double> = allMembers
+        .map { members ->
+            members.sumOf { it.dueAdvance ?: 0.0 }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
+
+    val monthlySignups: StateFlow<List<MonthlySignupData>> = allMembers
+        .map { members ->
+            val groupAndSortFormat = SimpleDateFormat("yyyy-MM", Locale.getDefault())
+            // --- FIX: Changed format to "MMM" for a short, clean label (e.g., "Feb") ---
+            val displayFormat = SimpleDateFormat("MMM", Locale.getDefault())
+            val calendar = Calendar.getInstance()
+
+            val signupsByMonth = members
+                .groupBy { member -> groupAndSortFormat.format(Date(member.startDate)) }
+
+            val last12Months = (0 downTo -11).map { monthOffset ->
+                val cal = Calendar.getInstance()
+                cal.add(Calendar.MONTH, monthOffset)
+                groupAndSortFormat.format(cal.time)
+            }
+
+            last12Months.reversed().map { monthKey ->
+                val date = groupAndSortFormat.parse(monthKey) ?: Date()
+                val count = signupsByMonth[monthKey]?.size?.toFloat() ?: 0f
+                MonthlySignupData(displayFormat.format(date), count)
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val planPopularity: StateFlow<List<PlanPopularityData>> = allMembers
+        .map { members ->
+            members
+                .groupBy { member ->
+                    member.plan.trim().removeSuffix("s").trim()
+                }
+                .map { (plan, memberList) -> PlanPopularityData(plan, memberList.size.toFloat()) }
+                .sortedByDescending { it.count }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
 
     fun onSearchQueryChange(query: String) {
@@ -108,6 +151,11 @@ class MainViewModel(
 
     fun deleteMember(member: Member) = viewModelScope.launch {
         memberDao.deleteMember(member)
+    }
+
+    fun clearDueAdvance(member: Member) = viewModelScope.launch {
+        val updatedMember = member.copy(dueAdvance = 0.0)
+        memberDao.upsertMember(updatedMember)
     }
 
     fun importMembersFromCsv(context: Context, uri: Uri) = viewModelScope.launch {

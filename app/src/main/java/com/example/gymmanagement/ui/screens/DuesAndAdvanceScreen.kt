@@ -24,7 +24,8 @@ import java.util.Locale
 @Composable
 fun DuesAndAdvanceScreen(
     navController: NavController,
-    duesAndAdvanceMembers: List<Member>
+    duesAndAdvanceMembers: List<Member>,
+    onClearBalance: (Member) -> Unit // --- NEW: Action to clear the balance ---
 ) {
     val totalDues = duesAndAdvanceMembers.filter { (it.dueAdvance ?: 0.0) < 0 }.sumOf { it.dueAdvance ?: 0.0 }
     val totalAdvance = duesAndAdvanceMembers.filter { (it.dueAdvance ?: 0.0) > 0 }.sumOf { it.dueAdvance ?: 0.0 }
@@ -68,7 +69,10 @@ fun DuesAndAdvanceScreen(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 items(duesAndAdvanceMembers) { member ->
-                    BalanceListItem(member = member)
+                    BalanceListItem(
+                        member = member,
+                        onClearClick = { onClearBalance(member) } // Pass the action down
+                    )
                 }
             }
         }
@@ -94,7 +98,10 @@ fun SummaryCard(title: String, amount: Double, color: Color, modifier: Modifier 
 }
 
 @Composable
-fun BalanceListItem(member: Member) {
+fun BalanceListItem(
+    member: Member,
+    onClearClick: () -> Unit // --- NEW: Callback for the clear button ---
+) {
     val amount = member.dueAdvance ?: 0.0
     val isDue = amount < 0
 
@@ -103,7 +110,7 @@ fun BalanceListItem(member: Member) {
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
         Row(
-            modifier = Modifier.padding(16.dp),
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
@@ -113,12 +120,16 @@ fun BalanceListItem(member: Member) {
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                Text(
+                    text = formatCurrency(amount),
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (isDue) RedAccent else GreenAccent
+                )
             }
-            Text(
-                text = formatCurrency(amount),
-                fontWeight = FontWeight.SemiBold,
-                color = if (isDue) RedAccent else GreenAccent
-            )
+            // --- NEW: Clear button ---
+            OutlinedButton(onClick = onClearClick) {
+                Text("Clear")
+            }
         }
     }
 }
@@ -126,6 +137,5 @@ fun BalanceListItem(member: Member) {
 private fun formatCurrency(value: Double): String {
     val format = NumberFormat.getCurrencyInstance(Locale("en", "IN"))
     format.currency = Currency.getInstance("INR")
-    // We use absolute value and then add the sign back if needed, for cleaner formatting
     return format.format(value)
 }

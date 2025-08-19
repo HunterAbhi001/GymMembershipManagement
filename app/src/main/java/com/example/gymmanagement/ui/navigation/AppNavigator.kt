@@ -1,6 +1,7 @@
 package com.example.gymmanagement.ui.navigation
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -30,6 +31,12 @@ fun AppNavigator(application: GymManagementApplication) {
             val totalBalance by viewModel.totalBalance.collectAsState()
             val totalDues by viewModel.totalDues.collectAsState()
 
+            DisposableEffect(Unit) {
+                onDispose {
+                    viewModel.onSearchQueryChange("")
+                }
+            }
+
             DashboardScreen(
                 navController = navController,
                 allMembers = allMembers,
@@ -54,13 +61,36 @@ fun AppNavigator(application: GymManagementApplication) {
             val duesAndAdvanceMembers by viewModel.duesAndAdvanceMembers.collectAsState()
             DuesAndAdvanceScreen(
                 navController = navController,
-                duesAndAdvanceMembers = duesAndAdvanceMembers
+                duesAndAdvanceMembers = duesAndAdvanceMembers,
+                onClearBalance = { member -> viewModel.clearDueAdvance(member) }
+            )
+        }
+
+        // --- NEW: Route for the Analytics Screen ---
+        composable("analytics") {
+            val monthlySignups by viewModel.monthlySignups.collectAsState()
+            val planPopularity by viewModel.planPopularity.collectAsState()
+            val activeMembers by viewModel.activeMembers.collectAsState()
+            val expiredMembers by viewModel.expiredMembers.collectAsState()
+
+            AnalyticsScreen(
+                navController = navController,
+                monthlySignups = monthlySignups,
+                planPopularity = planPopularity,
+                activeCount = activeMembers.size,
+                expiredCount = expiredMembers.size
             )
         }
 
         composable("search_members") {
             val searchQuery by viewModel.searchQuery.collectAsState()
             val searchedMembers by viewModel.allMembers.collectAsState()
+
+            DisposableEffect(Unit) {
+                onDispose {
+                    viewModel.onSearchQueryChange("")
+                }
+            }
 
             SearchScreen(
                 navController = navController,
@@ -118,8 +148,6 @@ fun AppNavigator(application: GymManagementApplication) {
             )
         }
 
-        // --- FIX: Reverted route to use only optional query parameters for flexibility ---
-        // This will fix the crash from the MemberDetailScreen.
         composable(
             route = "add_edit_member?memberId={memberId}&isRenewal={isRenewal}",
             arguments = listOf(

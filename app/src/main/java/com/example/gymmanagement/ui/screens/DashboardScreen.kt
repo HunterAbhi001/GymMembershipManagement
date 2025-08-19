@@ -21,7 +21,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.example.gymmanagement.data.database.Member
-import com.example.gymmanagement.ui.theme.GreenAccent
 import com.example.gymmanagement.ui.theme.RedAccent
 import com.example.gymmanagement.ui.utils.DateUtils
 import com.example.gymmanagement.ui.utils.sendSmsMessage
@@ -42,15 +41,12 @@ fun DashboardScreen(
     onDeleteMember: (Member) -> Unit,
     todaysRevenue: Double = 0.0,
     totalBalance: Double = 0.0,
-    totalDues: Double = 0.0 // This parameter is no longer used directly but kept for compatibility
+    totalDues: Double = 0.0
 ) {
     val context = LocalContext.current
     val todayStart = DateUtils.startOfDayMillis()
     val activeMemberCount = allMembers.count { it.expiryDate >= todayStart }
     var memberToDelete by remember { mutableStateOf<Member?>(null) }
-
-    // --- NEW: Calculate the net total of all dues and advances ---
-    val netDuesAdvance = allMembers.sumOf { it.dueAdvance ?: 0.0 }
 
     if (memberToDelete != null) {
         AlertDialog(
@@ -159,16 +155,10 @@ fun DashboardScreen(
                         onClick = { navController.navigate("todays_revenue") }
                     )
                     StatCard(
-                        label = "Dues/Advance",
-                        count = formatCurrencyShort(netDuesAdvance),
+                        label = "Dues",
+                        count = formatCurrencyShort(totalDues),
                         icon = Icons.Default.ReceiptLong,
                         iconColor = Color(0xFFFFC107),
-                        // --- NEW: Dynamic color for the count text ---
-                        countColor = when {
-                            netDuesAdvance < 0 -> RedAccent
-                            netDuesAdvance > 0 -> GreenAccent
-                            else -> MaterialTheme.colorScheme.onSurface
-                        },
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxHeight(),
@@ -198,6 +188,14 @@ fun DashboardScreen(
                     label = "Manage All Members",
                     icon = Icons.Default.People,
                     onClick = { navController.navigate("all_members_list") }
+                )
+            }
+            // --- NEW: Card for Analytics & Reports ---
+            item {
+                ActionCard(
+                    label = "Analytics & Reports",
+                    icon = Icons.Default.Analytics,
+                    onClick = { navController.navigate("analytics") }
                 )
             }
             item {
@@ -246,7 +244,7 @@ fun StatCard(
     icon: ImageVector,
     iconColor: Color,
     modifier: Modifier = Modifier,
-    countColor: Color = MaterialTheme.colorScheme.onSurface, // Default color
+    countColor: Color = MaterialTheme.colorScheme.onSurface,
     onClick: () -> Unit
 ) {
     Card(
@@ -255,7 +253,6 @@ fun StatCard(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
         Column(
-            // --- FIX: This ensures the content fills the card for even height ---
             modifier = Modifier
                 .fillMaxSize()
                 .padding(16.dp),
@@ -273,7 +270,7 @@ fun StatCard(
                 text = count,
                 style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.ExtraBold,
-                color = countColor // Use the dynamic color
+                color = countColor
             )
             Text(
                 text = label,
@@ -438,12 +435,6 @@ fun ExpiringMemberItem(
             }
         }
     }
-}
-
-private fun formatCurrency(value: Double): String {
-    val format = NumberFormat.getCurrencyInstance(Locale("en", "IN"))
-    format.currency = Currency.getInstance("INR")
-    return format.format(value)
 }
 
 private fun formatCurrencyShort(value: Double): String {

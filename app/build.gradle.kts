@@ -44,7 +44,7 @@ android {
         compose = true
     }
     composeOptions {
-        kotlinCompilerExtensionVersion = "1.5.10"
+        kotlinCompilerExtensionVersion = "2.0.0"
     }
     packaging {
         resources {
@@ -82,6 +82,12 @@ dependencies {
     implementation(libs.firebase.firestore)
     implementation(libs.firebase.storage)
     ksp(libs.androidx.room.compiler)
+
+    // For Charts using Vico
+    implementation("com.patrykandpatrick.vico:compose-m3:2.1.3")
+    implementation("com.patrykandpatrick.vico:core:2.1.3")
+
+
 
     // Testing
     testImplementation(libs.junit)
