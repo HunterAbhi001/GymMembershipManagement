@@ -25,7 +25,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import com.example.gymmanagement.data.database.Member
-import com.example.gymmanagement.ui.theme.AppIcons
+import com.example.gymmanagement.ui.icons.WhatsAppIcon
 import com.example.gymmanagement.ui.theme.Green
 import com.example.gymmanagement.ui.theme.Red
 import com.example.gymmanagement.ui.utils.DateUtils.toDateString
@@ -45,7 +45,6 @@ fun MemberDetailScreen(
     var showFullImage by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
-    // start-of-day to treat "expiring today" as not expired
     val todayStart = remember {
         Calendar.getInstance().apply {
             set(Calendar.HOUR_OF_DAY, 0)
@@ -75,10 +74,10 @@ fun MemberDetailScreen(
                         val message = "Hi ${member?.name}, regarding your gym membership..."
                         sendWhatsAppMessage(context, member?.contact ?: "", message)
                     }) {
-                        Icon(AppIcons.WhatsApp, contentDescription = "Send WhatsApp Message")
+                        Icon(WhatsAppIcon, contentDescription = "Send WhatsApp Message", tint = Color.Unspecified)
                     }
                     IconButton(onClick = {
-                        navController.navigate("add_edit_member?memberId=${member?.id}")
+                        navController.navigate("add_edit_member?memberId=${member?.id}&isRenewal=false")
                     }) {
                         Icon(Icons.Default.Edit, contentDescription = "Edit Member")
                     }
@@ -99,7 +98,8 @@ fun MemberDetailScreen(
                 DetailCard(member, onImageClick = { showFullImage = true }, isExpired = isExpired)
 
                 if (isExpired) {
-                    Button(onClick = { navController.navigate("add_edit_member?memberId=${member.id}&isRenew=true") }, colors = ButtonDefaults.buttonColors(containerColor = Green), modifier = Modifier.fillMaxWidth()) {
+                    // --- FIX: Corrected the parameter name from "isRenew" to "isRenewal" ---
+                    Button(onClick = { navController.navigate("add_edit_member?memberId=${member.id}&isRenewal=true") }, colors = ButtonDefaults.buttonColors(containerColor = Green), modifier = Modifier.fillMaxWidth()) {
                         Text("Renew Membership")
                     }
                 }
@@ -134,7 +134,8 @@ fun MemberDetailScreen(
 
 @Composable
 fun DetailCard(member: Member, onImageClick: () -> Unit, isExpired: Boolean) {
-    val nf = NumberFormat.getCurrencyInstance(Locale.getDefault())
+    val nf = NumberFormat.getCurrencyInstance(Locale("en", "IN"))
+    nf.currency = Currency.getInstance("INR")
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {

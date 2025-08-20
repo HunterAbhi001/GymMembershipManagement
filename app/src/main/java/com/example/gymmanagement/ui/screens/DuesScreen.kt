@@ -3,14 +3,16 @@ package com.example.gymmanagement.ui.screens
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.example.gymmanagement.data.database.Member
@@ -22,18 +24,30 @@ import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DuesAndAdvanceScreen(
+fun DuesScreen(
     navController: NavController,
-    duesAndAdvanceMembers: List<Member>,
-    onClearBalance: (Member) -> Unit // --- NEW: Action to clear the balance ---
+    membersWithDues: List<Member>,
+    onUpdateDues: (Member, Double) -> Unit // Callback to update the dues
 ) {
-    val totalDues = duesAndAdvanceMembers.filter { (it.dueAdvance ?: 0.0) < 0 }.sumOf { it.dueAdvance ?: 0.0 }
-    val totalAdvance = duesAndAdvanceMembers.filter { (it.dueAdvance ?: 0.0) > 0 }.sumOf { it.dueAdvance ?: 0.0 }
+    val totalDues = membersWithDues.sumOf { it.dueAdvance ?: 0.0 }
+    var memberToPay by remember { mutableStateOf<Member?>(null) }
+
+    // Show the payment dialog when a member is selected
+    if (memberToPay != null) {
+        PaymentDialog(
+            member = memberToPay!!,
+            onDismiss = { memberToPay = null },
+            onConfirm = { amountPaid ->
+                onUpdateDues(memberToPay!!, amountPaid)
+                memberToPay = null
+            }
+        )
+    }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Dues & Advances") },
+                title = { Text("Outstanding Dues") },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -52,26 +66,20 @@ fun DuesAndAdvanceScreen(
                 .padding(paddingValues)
                 .padding(16.dp)
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                SummaryCard("Total Dues", totalDues, RedAccent, Modifier.weight(1f))
-                SummaryCard("Total Advance", totalAdvance, GreenAccent, Modifier.weight(1f))
-            }
+            SummaryCard("Total Dues", totalDues, RedAccent, Modifier.fillMaxWidth())
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            Text("All Outstanding Balances", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Text("Members with Dues", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
 
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                items(duesAndAdvanceMembers) { member ->
+                items(membersWithDues) { member ->
                     BalanceListItem(
                         member = member,
-                        onClearClick = { onClearBalance(member) } // Pass the action down
+                        onPayClick = { memberToPay = member } // Set the member to trigger the dialog
                     )
                 }
             }
@@ -79,6 +87,7 @@ fun DuesAndAdvanceScreen(
     }
 }
 
+// --- FIX: Added the missing SummaryCard composable function ---
 @Composable
 fun SummaryCard(title: String, amount: Double, color: Color, modifier: Modifier = Modifier) {
     Card(
@@ -100,10 +109,9 @@ fun SummaryCard(title: String, amount: Double, color: Color, modifier: Modifier 
 @Composable
 fun BalanceListItem(
     member: Member,
-    onClearClick: () -> Unit // --- NEW: Callback for the clear button ---
+    onPayClick: () -> Unit
 ) {
     val amount = member.dueAdvance ?: 0.0
-    val isDue = amount < 0
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -116,22 +124,65 @@ fun BalanceListItem(
             Column(modifier = Modifier.weight(1f)) {
                 Text(member.name, fontWeight = FontWeight.Bold)
                 Text(
-                    text = if (isDue) "Amount Due" else "Advance Paid",
+                    text = "Amount Due",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Text(
                     text = formatCurrency(amount),
                     fontWeight = FontWeight.SemiBold,
-                    color = if (isDue) RedAccent else GreenAccent
+                    color = RedAccent
                 )
             }
-            // --- NEW: Clear button ---
-            OutlinedButton(onClick = onClearClick) {
-                Text("Clear")
+            Button(onClick = onPayClick) {
+                Text("Pay")
             }
         }
     }
+}
+
+@Composable
+private fun PaymentDialog(
+    member: Member,
+    onDismiss: () -> Unit,
+    onConfirm: (Double) -> Unit
+) {
+    var amountPaidInput by remember { mutableStateOf("") }
+    val currentDue = member.dueAdvance ?: 0.0
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Receive Payment for ${member.name}") },
+        text = {
+            Column {
+                Text("Current Due: ${formatCurrency(currentDue)}")
+                Spacer(modifier = Modifier.height(16.dp))
+                OutlinedTextField(
+                    value = amountPaidInput,
+                    onValueChange = { amountPaidInput = it },
+                    label = { Text("Amount Received") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val amountPaid = amountPaidInput.toDoubleOrNull() ?: 0.0
+                    if (amountPaid > 0) {
+                        onConfirm(amountPaid)
+                    }
+                }
+            ) {
+                Text("Confirm Payment")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
 }
 
 private fun formatCurrency(value: Double): String {

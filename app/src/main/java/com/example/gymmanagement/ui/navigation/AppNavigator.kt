@@ -30,6 +30,7 @@ fun AppNavigator(application: GymManagementApplication) {
             val todaysRevenue by viewModel.todaysRevenue.collectAsState()
             val totalBalance by viewModel.totalBalance.collectAsState()
             val totalDues by viewModel.totalDues.collectAsState()
+            // This value is now calculated inside the DashboardScreen, so we don't need to collect it here.
 
             DisposableEffect(Unit) {
                 onDispose {
@@ -46,6 +47,7 @@ fun AppNavigator(application: GymManagementApplication) {
                 todaysRevenue = todaysRevenue,
                 totalBalance = totalBalance,
                 totalDues = totalDues
+                // --- FIX: Removed the extra netDuesAdvance parameter ---
             )
         }
 
@@ -57,16 +59,24 @@ fun AppNavigator(application: GymManagementApplication) {
             )
         }
 
-        composable("dues_advance") {
-            val duesAndAdvanceMembers by viewModel.duesAndAdvanceMembers.collectAsState()
-            DuesAndAdvanceScreen(
+        composable("collections") {
+            val filteredMembers by viewModel.filteredCollection.collectAsState()
+            CollectionScreen(
                 navController = navController,
-                duesAndAdvanceMembers = duesAndAdvanceMembers,
-                onClearBalance = { member -> viewModel.clearDueAdvance(member) }
+                filteredMembers = filteredMembers,
+                onDateFilterChange = { filter, start, end -> viewModel.onCollectionDateFilterChange(filter, start, end) }
             )
         }
 
-        // --- NEW: Route for the Analytics Screen ---
+        composable("dues_advance") {
+            val membersWithDues by viewModel.membersWithDues.collectAsState()
+            DuesScreen(
+                navController = navController,
+                membersWithDues = membersWithDues,
+                onUpdateDues = { member, amountPaid -> viewModel.updateDueAdvance(member, amountPaid) }
+            )
+        }
+
         composable("analytics") {
             val monthlySignups by viewModel.monthlySignups.collectAsState()
             val planPopularity by viewModel.planPopularity.collectAsState()

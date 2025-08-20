@@ -78,7 +78,7 @@ fun TodaysRevenueScreen(
 }
 
 @Composable
-fun RevenueListItem(member: Member) {
+private fun RevenueListItem(member: Member) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
