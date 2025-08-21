@@ -1,7 +1,10 @@
 package com.example.gymmanagement.viewmodel
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.net.Uri
+import android.os.Build
 import android.util.Log
 import android.widget.Toast
 import androidx.lifecycle.ViewModel
@@ -18,6 +21,7 @@ import com.google.firebase.firestore.ktx.firestore
 import com.google.firebase.firestore.ktx.snapshots
 import com.google.firebase.ktx.Firebase
 import com.google.firebase.storage.ktx.storage
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -33,6 +37,8 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
+import java.io.ByteArrayOutputStream
 import java.text.SimpleDateFormat
 import java.util.*
 import java.util.concurrent.TimeUnit
@@ -107,7 +113,6 @@ class MainViewModel : ViewModel() {
         }
         .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), emptyList())
 
-    // --- FIXED: Added .sortedBy { it.name } to sort the active members list alphabetically ---
     val activeMembers: StateFlow<List<Member>> =
         allMembers.map { members ->
             val todayStart = DateUtils.startOfDayMillis()
@@ -237,7 +242,8 @@ class MainViewModel : ViewModel() {
 
     fun onSearchQueryChange(query: String) { _searchQuery.value = query }
 
-    fun addOrUpdateMember(member: Member, photoUri: Uri?) = viewModelScope.launch {
+    // --- UPDATED: This function now includes image compression ---
+    fun addOrUpdateMember(member: Member, photoUri: Uri?, context: Context) = viewModelScope.launch {
         _isLoading.value = true
         val userId = auth.currentUser?.uid ?: run {
             _isLoading.value = false
@@ -249,10 +255,26 @@ class MainViewModel : ViewModel() {
         photoUri?.let { uri ->
             val photoRef = storage.reference.child("images/$userId/${System.currentTimeMillis()}_photo.jpg")
             try {
-                val downloadUrl = photoRef.putFile(uri).await().storage.downloadUrl.await()
+                // --- IMAGE COMPRESSION LOGIC START ---
+                // Switch to a background thread for image processing
+                val compressedImageData = withContext(Dispatchers.IO) {
+                    val inputStream = context.contentResolver.openInputStream(uri)
+                    val bitmap = BitmapFactory.decodeStream(inputStream)
+
+                    val outputStream = ByteArrayOutputStream()
+                    // Compress the bitmap to JPEG with 80% quality. You can adjust this value.
+                    bitmap.compress(Bitmap.CompressFormat.JPEG, 80, outputStream)
+                    outputStream.toByteArray()
+                }
+                // --- IMAGE COMPRESSION LOGIC END ---
+
+                // Upload the compressed byte array instead of the original file
+                val downloadUrl = photoRef.putBytes(compressedImageData).await().storage.downloadUrl.await()
                 memberToSave = memberToSave.copy(photoUri = downloadUrl.toString())
+
             } catch (e: Exception) {
-                Log.w("MainVM", "photo upload failed", e)
+                Log.w("MainVM", "Photo upload/compression failed", e)
+                Toast.makeText(context, "Failed to upload photo.", Toast.LENGTH_SHORT).show()
             }
         }
 
@@ -275,9 +297,16 @@ class MainViewModel : ViewModel() {
         val userId = auth.currentUser?.uid ?: return@launch
         if (member.idString.isNotBlank()) {
             try {
+                // Also delete the photo from storage if it exists
+                member.photoUri?.let { uri ->
+                    if (uri.isNotBlank()) {
+                        storage.getReferenceFromUrl(uri).delete().await()
+                    }
+                }
                 firestore.collection("users").document(userId).collection("members").document(member.idString).delete().await()
             } catch (e: Exception) {
                 _errorMessage.value = "Delete failed: ${e.message}"
+                Log.e("MainVM", "Error deleting member or their photo", e)
             } finally {
                 _isLoading.value = false
             }
@@ -301,6 +330,17 @@ class MainViewModel : ViewModel() {
                 _deleteProgress.value = 0
                 val batch = firestore.batch()
                 snapshot.documents.forEach { doc ->
+                    // Delete photo from storage
+                    val member = doc.toObject(Member::class.java)
+                    member?.photoUri?.let { uri ->
+                        if (uri.isNotBlank()) {
+                            try {
+                                storage.getReferenceFromUrl(uri).delete().await()
+                            } catch (e: Exception) {
+                                Log.w("MainVM", "Failed to delete photo for member ${member.name}", e)
+                            }
+                        }
+                    }
                     batch.delete(doc.reference)
                     _deleteProgress.value++
                 }
@@ -377,7 +417,7 @@ class MainViewModel : ViewModel() {
 
             var importedCount = 0
             members.forEach { member ->
-                addOrUpdateMember(member, null)
+                addOrUpdateMember(member, null, context)
                 importedCount++
                 Log.d("MainVM_Import", "Attempting to import member ${importedCount}/${members.size}: ${member.name}")
             }

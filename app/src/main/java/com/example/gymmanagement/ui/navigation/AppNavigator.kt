@@ -4,22 +4,20 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import com.example.gymmanagement.GymManagementApplication
 import com.example.gymmanagement.ui.screens.*
 import com.example.gymmanagement.viewmodel.MainViewModel
 import com.example.gymmanagement.viewmodel.MainViewModelFactory
 
-// --- FIX: The 'application' parameter is no longer needed for the navigator ---
 @Composable
 fun AppNavigator() {
     val navController = rememberNavController()
-    // --- FIX: The ViewModelFactory is now parameterless because it doesn't need the local database ---
     val viewModel: MainViewModel = viewModel(factory = MainViewModelFactory())
 
     NavHost(navController = navController, startDestination = "dashboard") {
@@ -185,10 +183,14 @@ fun AppNavigator() {
                 allMembers.find { it.idString == memberId }
             }
 
+            // --- FIX: Get the context and pass it to the onSave lambda ---
+            val context = LocalContext.current
             AddEditMemberScreen(
                 navController = navController,
                 member = member,
-                onSave = { memberToSave, photoUri -> viewModel.addOrUpdateMember(memberToSave, photoUri) },
+                onSave = { memberToSave, photoUri ->
+                    viewModel.addOrUpdateMember(memberToSave, photoUri, context)
+                },
                 isRenewal = isRenewal,
                 plans = allPlans
             )
