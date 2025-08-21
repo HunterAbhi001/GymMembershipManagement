@@ -16,7 +16,10 @@ import com.example.gymmanagement.viewmodel.MainViewModel
 import com.example.gymmanagement.viewmodel.MainViewModelFactory
 
 @Composable
-fun AppNavigator() {
+fun AppNavigator(
+    isDarkTheme: Boolean,
+    onThemeToggle: () -> Unit
+) {
     val navController = rememberNavController()
     val viewModel: MainViewModel = viewModel(factory = MainViewModelFactory())
 
@@ -41,7 +44,9 @@ fun AppNavigator() {
                 onDeleteMember = { member -> viewModel.deleteMember(member) },
                 todaysRevenue = todaysRevenue,
                 totalBalance = totalBalance,
-                totalDues = totalDues
+                totalDues = totalDues,
+                isDarkTheme = isDarkTheme,
+                onThemeToggle = onThemeToggle
             )
         }
 
@@ -183,7 +188,6 @@ fun AppNavigator() {
                 allMembers.find { it.idString == memberId }
             }
 
-            // --- FIX: Get the context and pass it to the onSave lambda ---
             val context = LocalContext.current
             AddEditMemberScreen(
                 navController = navController,
