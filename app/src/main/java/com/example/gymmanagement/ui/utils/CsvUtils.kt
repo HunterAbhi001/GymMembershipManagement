@@ -2,197 +2,171 @@ package com.example.gymmanagement.ui.utils
 
 import android.content.Context
 import android.net.Uri
+import android.util.Log
 import com.example.gymmanagement.data.database.Member
 import java.io.BufferedReader
-import java.io.FileOutputStream
 import java.io.InputStreamReader
+import java.io.OutputStreamWriter
 import java.text.SimpleDateFormat
 import java.util.*
 
 object CsvUtils {
 
-    // Preferred header order we will write and also try to read by header name (case-insensitive)
-    private val csvHeaderOrdered = listOf(
-        "Name", "Contact", "Plan", "StartDate", "ExpiryDate", "Gender",
-        "Batch", "Price", "Discount", "FinalAmount", "PurchaseDate", "DueAdvance"
-    )
+    // This is the primary format for writing dates out to the CSV.
+    private val primaryDateFormat = SimpleDateFormat("dd/MM/yyyy", Locale.ENGLISH)
 
-    // Accept multiple synonyms for some headers (lowercase keys)
-    private val headerSynonyms = mapOf(
-        "name" to listOf("name"),
-        "contact" to listOf("contact", "mobile", "phone"),
-        "plan" to listOf("plan"),
-        "startdate" to listOf("startdate", "start_date", "start"),
-        "expirydate" to listOf("expirydate", "expiry_date", "expiry", "enddate"),
-        "gender" to listOf("gender", "sex"),
-        "batch" to listOf("batch"),
-        "price" to listOf("price", "amount"),
-        "discount" to listOf("discount"),
-        "finalamount" to listOf("finalamount", "final_amount", "final"),
-        "purchasedate" to listOf("purchasedate", "purchase_date", "purchase"),
-        "dueadvance" to listOf("dueadvance", "due_advance", "due")
-    )
-
-    fun readMembersFromCsv(context: Context, uri: Uri): Pair<List<Member>, Int> {
+    /**
+     * Reads a CSV file from a given URI and converts its rows into a list of Member objects.
+     * This function is specifically tailored to the user's 12-column CSV format and
+     * uses flexible parsing for dates and lines.
+     */
+    fun readMembersFromCsv(context: Context, uri: Uri): List<Member> {
         val members = mutableListOf<Member>()
-        var failedRows = 0
-
         context.contentResolver.openInputStream(uri)?.use { inputStream ->
             BufferedReader(InputStreamReader(inputStream)).use { reader ->
-                // Read first line as header if possible
-                val firstLine = reader.readLine() ?: return Pair(emptyList(), 0)
-                val delimiter = if (firstLine.contains(";") && firstLine.split(";").size > firstLine.split(",").size) ";" else ","
-                val headerTokens = firstLine.split(delimiter).map { it.trim().trim('"') }
-
-                // Build a map of column name (normalized) -> index
-                val headerIndex = mutableMapOf<String, Int>()
-                headerTokens.forEachIndexed { idx, tok ->
-                    val lower = tok.lowercase(Locale.ROOT)
-                    headerSynonyms.forEach { (key, synonyms) ->
-                        if (lower in synonyms) headerIndex[key] = idx
-                    }
-                }
-
-                // If headerIndex is empty (no recognized headers), we'll fallback to positional parsing
-                var line: String? = reader.readLine()
-                while (line != null) {
-                    var tokens = line.split(delimiter).map { it.trim().trim('"') }.toMutableList()
-                    // If tokens fewer than header tokens, try splitting by comma as fallback
-                    if (tokens.size < headerTokens.size && delimiter == ";") {
-                        tokens = line.split(",").map { it.trim().trim('"') }.toMutableList()
-                    }
-
-                    try {
-                        fun String?.safeAt(idx: Int) = this ?: ""
-
-                        // Helper to retrieve either by header index or fallback position
-                        fun valueAt(key: String, fallbackPos: Int): String? {
-                            val idx = headerIndex[key]
-                            return if (idx != null && idx < tokens.size) tokens[idx].ifBlank { null } else tokens.getOrNull(fallbackPos)?.ifBlank { null }
+                reader.readLine() // Skip header line
+                var lineCount = 1
+                reader.forEachLine { line ->
+                    val tokens = parseCsvLine(line)
+                    // Check if the row has the correct number of columns
+                    if (tokens.size == 12) {
+                        try {
+                            val member = Member(
+                                // idString and userId will be set by the ViewModel upon saving
+                                name = tokens[0],
+                                contact = tokens[1], // "Mobile" column
+                                plan = tokens[2],
+                                startDate = parseDateFlexible(tokens[3]) ?: 0L,
+                                expiryDate = parseDateFlexible(tokens[4]) ?: 0L,
+                                gender = tokens[5].takeIf { it.isNotBlank() },
+                                batch = tokens[6].takeIf { it.isNotBlank() },
+                                price = tokens[7].toDoubleOrNull() ?: 0.0,
+                                discount = tokens[8].toDoubleOrNull() ?: 0.0,
+                                finalAmount = tokens[9].toDoubleOrNull() ?: 0.0,
+                                purchaseDate = parseDateFlexible(tokens[10]) ?: 0L,
+                                dueAdvance = tokens[11].toDoubleOrNull() ?: 0.0
+                            )
+                            members.add(member)
+                        } catch (e: Exception) {
+                            Log.e("CsvUtils", "Error parsing row $lineCount: $line", e)
                         }
-
-                        // Positional fallback mapping (if no header recognized)
-                        // Order: Name(0),Contact(1),Plan(2),StartDate(3),ExpiryDate(4),Gender(5),
-                        // Batch(6), Price(7), Discount(8), FinalAmount(9), PurchaseDate(10), DueAdvance(11)
-                        val name = (valueAt("name", 0))?.trim()?.takeIf { it.isNotEmpty() }
-                        val contact = (valueAt("contact", 1))?.trim()?.takeIf { it.isNotEmpty() }
-                        val plan = (valueAt("plan", 2))?.trim()?.takeIf { it.isNotEmpty() } ?: "Unspecified"
-                        val startDateString = valueAt("startdate", 3)
-                        val expiryDateString = valueAt("expirydate", 4)
-                        val gender = valueAt("gender", 5)?.takeIf { it.isNotEmpty() }
-                        val batch = valueAt("batch", 6)?.takeIf { it.isNotEmpty() }
-                        val price = valueAt("price", 7)?.replace("[^0-9.-]".toRegex(), "")?.toDoubleOrNull()
-                        val discount = valueAt("discount", 8)?.replace("[^0-9.-]".toRegex(), "")?.toDoubleOrNull()
-                        var finalAmount = valueAt("finalamount", 9)?.replace("[^0-9.-]".toRegex(), "")?.toDoubleOrNull()
-                        val purchaseDateString = valueAt("purchasedate", 10)
-                        val dueAdvance = valueAt("dueadvance", 11)?.replace("[^0-9.-]".toRegex(), "")?.toDoubleOrNull()
-
-                        if (name != null && contact != null && !expiryDateString.isNullOrEmpty()) {
-                            val expiryDate = DateUtils.parseDate(expiryDateString)?.time
-
-                            val parsedStart = if (!startDateString.isNullOrEmpty()) DateUtils.parseDate(startDateString)?.time else null
-                            val parsedPurchase = if (!purchaseDateString.isNullOrEmpty()) DateUtils.parseDate(purchaseDateString)?.time else null
-
-                            // Apply defaulting rules:
-                            // 1) If start missing but purchase present -> start = purchase
-                            // 2) If purchase missing but start present -> purchase = start
-                            // 3) If both missing -> start = expiry, purchase = start (legacy behavior)
-                            var startDateValue: Long? = parsedStart
-                            var purchaseDateValue: Long? = parsedPurchase
-
-                            if (startDateValue == null && purchaseDateValue != null) {
-                                startDateValue = purchaseDateValue
-                            }
-                            if (purchaseDateValue == null && startDateValue != null) {
-                                purchaseDateValue = startDateValue
-                            }
-
-                            if (startDateValue == null && expiryDate != null) {
-                                startDateValue = expiryDate
-                                purchaseDateValue = startDateValue
-                            } else if (purchaseDateValue == null && startDateValue != null) {
-                                purchaseDateValue = startDateValue
-                            }
-
-                            if (startDateValue != null && expiryDate != null) {
-                                // compute finalAmount if not provided
-                                if (finalAmount == null && price != null) {
-                                    finalAmount = price - (discount ?: 0.0)
-                                }
-
-                                members.add(
-                                    Member(
-                                        name = name,
-                                        contact = contact,
-                                        plan = plan,
-                                        startDate = startDateValue,
-                                        expiryDate = expiryDate,
-                                        gender = gender,
-                                        photoUri = null,
-                                        batch = batch,
-                                        price = price,
-                                        discount = discount,
-                                        finalAmount = finalAmount,
-                                        purchaseDate = purchaseDateValue,
-                                        dueAdvance = dueAdvance
-                                    )
-                                )
-                            } else {
-                                failedRows++
-                            }
-                        } else {
-                            failedRows++
-                        }
-                    } catch (e: Exception) {
-                        failedRows++
-                        e.printStackTrace()
+                    } else {
+                        Log.w("CsvUtils", "Skipping malformed row $lineCount: Expected 12 columns, but found ${tokens.size}. Line: $line")
                     }
-
-                    line = reader.readLine()
+                    lineCount++
                 }
             }
         }
-
-        return Pair(members, failedRows)
+        return members
     }
 
+    /**
+     * Writes a list of Member objects to a CSV file at the given URI, matching the 12-column format.
+     */
     fun writeMembersToCsv(context: Context, uri: Uri, members: List<Member>) {
-        // We'll write dates in dd-MMM-yy format
-        val dateFormat = SimpleDateFormat("dd-MMM-yy", Locale.ENGLISH)
-        context.contentResolver.openFileDescriptor(uri, "w")?.use {
-            FileOutputStream(it.fileDescriptor).use { fos ->
-                // header
-                fos.write(csvHeaderOrdered.joinToString(",").plus("\n").toByteArray())
+        context.contentResolver.openOutputStream(uri)?.use { outputStream ->
+            OutputStreamWriter(outputStream).use { writer ->
+                // Write Header matching the 12-column format
+                writer.write("Name,Mobile,Plan,Start Date,Expiry Date,Gender,Batch,Price,Discount,Final Amount,Purchase Date,Due/Advance\n")
 
                 members.forEach { member ->
-                    val startDateString = dateFormat.format(Date(member.startDate))
-                    val expiryDateString = dateFormat.format(Date(member.expiryDate))
-                    val purchaseDateString = dateFormat.format(Date(member.purchaseDate ?: member.startDate))
-                    val priceStr = member.price?.toString() ?: ""
-                    val discountStr = member.discount?.toString() ?: ""
-                    val finalAmountStr = member.finalAmount?.toString() ?: ""
-                    val dueAdvanceStr = member.dueAdvance?.toString() ?: ""
-                    val batchStr = member.batch ?: ""
-                    val genderStr = member.gender ?: ""
-
                     val line = listOf(
                         member.name,
                         member.contact,
                         member.plan,
-                        startDateString,
-                        expiryDateString,
-                        genderStr,
-                        batchStr,
-                        priceStr,
-                        discountStr,
-                        finalAmountStr,
-                        purchaseDateString,
-                        dueAdvanceStr
-                    ).joinToString(",") { it.replace(",", " ") } + "\n"
-
-                    fos.write(line.toByteArray())
+                        formatLongToDate(member.startDate),
+                        formatLongToDate(member.expiryDate),
+                        member.gender ?: "",
+                        member.batch ?: "",
+                        member.price?.toString() ?: "0.0",
+                        member.discount?.toString() ?: "0.0",
+                        member.finalAmount?.toString() ?: "0.0",
+                        formatLongToDate(member.purchaseDate),
+                        member.dueAdvance?.toString() ?: "0.0"
+                    ).joinToString(",") { escapeCsv(it) }
+                    writer.write("$line\n")
                 }
+                writer.flush()
             }
         }
+    }
+
+    // --- Helper Functions from your provided code ---
+
+    private fun formatLongToDate(dateLong: Long?): String {
+        if (dateLong == null || dateLong == 0L) return ""
+        return try {
+            primaryDateFormat.format(Date(dateLong))
+        } catch (e: Exception) {
+            ""
+        }
+    }
+
+    private fun parseDateFlexible(s: String): Long? {
+        val trimmed = s.trim()
+        if (trimmed.isBlank()) return null
+
+        if (trimmed.contains("(") && trimmed.contains(")")) {
+            val inside = trimmed.substringAfter("(").substringBefore(")")
+            inside.toLongOrNull()?.let { return it }
+        }
+
+        trimmed.toLongOrNull()?.let {
+            if (it > 10_000_000_000L) return it
+        }
+
+        val candidates = listOf("dd/MM/yyyy", "dd-MMM-yy", "yyyy-MM-dd", "dd-MM-yyyy", "dd/MM/yy", "MM/dd/yy", "MM-dd-yy")
+        for (fmt in candidates) {
+            try {
+                val df = SimpleDateFormat(fmt, Locale.ENGLISH)
+                df.isLenient = false
+                val date = df.parse(trimmed) ?: continue
+                val cal = Calendar.getInstance().apply { time = date }
+                val year = cal.get(Calendar.YEAR)
+                if (year in 0..99) {
+                    cal.set(Calendar.YEAR, year + 2000)
+                }
+                return cal.timeInMillis
+            } catch (_: Exception) {
+            }
+        }
+        return null
+    }
+
+    private fun escapeCsv(field: String): String {
+        return if (field.contains(",") || field.contains("\"") || field.contains("\n")) {
+            "\"" + field.replace("\"", "\"\"") + "\""
+        } else {
+            field
+        }
+    }
+
+    private fun parseCsvLine(line: String): List<String> {
+        val tokens = mutableListOf<String>()
+        var current = StringBuilder()
+        var inQuotes = false
+        var i = 0
+        while (i < line.length) {
+            when (val c = line[i]) {
+                '"' -> {
+                    if (inQuotes && i + 1 < line.length && line[i + 1] == '"') {
+                        current.append('"')
+                        i++
+                    } else {
+                        inQuotes = !inQuotes
+                    }
+                }
+                ',' -> if (!inQuotes) {
+                    tokens.add(current.toString())
+                    current = StringBuilder()
+                } else {
+                    current.append(c)
+                }
+                else -> current.append(c)
+            }
+            i++
+        }
+        tokens.add(current.toString())
+        return tokens
     }
 }

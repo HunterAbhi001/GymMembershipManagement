@@ -1,13 +1,13 @@
 {
   "project_info": {
-    "project_number": "557571084526",
-    "project_id": "abhay-gym-management",
-    "storage_bucket": "abhay-gym-management.firebasestorage.app"
+    "project_number": "76641309094",
+    "project_id": "gym-management-44eac",
+    "storage_bucket": "gym-management-44eac.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:557571084526:android:be71a44e2e837d3786e3ff",
+        "mobilesdk_app_id": "1:76641309094:android:11f6d5ad6286181e1cff67",
         "android_client_info": {
           "package_name": "com.example.gymmanagement"
         }
@@ -15,7 +15,7 @@
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyBE3f7Q0oI8RyjWNAps9C7jbIYyjHnHQok"
+          "current_key": "AIzaSyCqfVUo519fPe2XpMkaVOlaO6fP076gBwk"
         }
       ],
       "services": {

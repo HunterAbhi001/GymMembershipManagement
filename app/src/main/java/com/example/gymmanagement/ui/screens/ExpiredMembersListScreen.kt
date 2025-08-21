@@ -64,7 +64,7 @@ fun ExpiredMembersListScreen(
                 items(filteredMembers) { member ->
                     MemberListItem(
                         member = member,
-                        onClick = { navController.navigate("member_details/${member.id}") }
+                        onClick = { navController.navigate("member_details/${member.idString}") }
                     )
                 }
             }

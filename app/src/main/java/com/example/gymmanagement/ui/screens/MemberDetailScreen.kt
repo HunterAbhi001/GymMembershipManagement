@@ -77,7 +77,7 @@ fun MemberDetailScreen(
                         Icon(WhatsAppIcon, contentDescription = "Send WhatsApp Message", tint = Color.Unspecified)
                     }
                     IconButton(onClick = {
-                        navController.navigate("add_edit_member?memberId=${member?.id}&isRenewal=false")
+                        navController.navigate("add_edit_member?memberId=${member?.idString}&isRenewal=false")
                     }) {
                         Icon(Icons.Default.Edit, contentDescription = "Edit Member")
                     }
@@ -99,7 +99,7 @@ fun MemberDetailScreen(
 
                 if (isExpired) {
                     // --- FIX: Corrected the parameter name from "isRenew" to "isRenewal" ---
-                    Button(onClick = { navController.navigate("add_edit_member?memberId=${member.id}&isRenewal=true") }, colors = ButtonDefaults.buttonColors(containerColor = Green), modifier = Modifier.fillMaxWidth()) {
+                    Button(onClick = { navController.navigate("add_edit_member?memberId=${member.idString}&isRenewal=true") }, colors = ButtonDefaults.buttonColors(containerColor = Green), modifier = Modifier.fillMaxWidth()) {
                         Text("Renew Membership")
                     }
                 }

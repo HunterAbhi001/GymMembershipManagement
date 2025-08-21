@@ -32,11 +32,11 @@ import androidx.navigation.NavController
 import com.example.gymmanagement.data.database.Member
 import com.example.gymmanagement.ui.common.MemberListItem
 import com.example.gymmanagement.ui.utils.DateUtils
+import com.example.gymmanagement.viewmodel.MainViewModel
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
 
-// --- Data classes to hold our filter and sort state ---
 data class FilterState(
     val statuses: Set<String> = emptySet(),
     val balanceOption: String = "All",
@@ -49,44 +49,59 @@ data class SortState(
     val option: String = "Name (A-Z)"
 )
 
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AllMembersListScreen(
     navController: NavController,
     allMembers: List<Member>,
-    onImport: (Uri) -> Unit,
-    onExport: (Uri) -> Unit
+    viewModel: MainViewModel
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var menuExpanded by remember { mutableStateOf(false) }
     var showFilterSheet by remember { mutableStateOf(false) }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
-    // --- FIX: Create a sheet state that skips the partial expand state ---
-    val sheetState = rememberModalBottomSheetState(
-        skipPartiallyExpanded = true
-    )
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     var filterState by remember { mutableStateOf(FilterState()) }
     var sortState by remember { mutableStateOf(SortState()) }
 
+    val context = LocalContext.current
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    val isLoading by viewModel.isLoading.collectAsState()
+    val deleteProgress by viewModel.deleteProgress.collectAsState()
+    val deleteTotal by viewModel.deleteTotal.collectAsState()
 
     val importLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent(),
-        onResult = { uri: Uri? -> uri?.let { onImport(it) } }
+        onResult = { uri: Uri? ->
+            uri?.let {
+                scope.launch {
+                    snackbarHostState.showSnackbar("Import started — completion will be shown by a Toast.")
+                }
+                viewModel.importMembersFromCsv(context, it)
+            }
+        }
     )
 
     val exportLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("text/csv"),
-        onResult = { uri: Uri? -> uri?.let { onExport(it) } }
+        onResult = { uri: Uri? ->
+            uri?.let {
+                scope.launch {
+                    snackbarHostState.showSnackbar("Export started — completion will be shown by a Toast.")
+                }
+                viewModel.exportMembersToCsv(context, it)
+            }
+        }
     )
 
     val processedMembers = remember(searchQuery, allMembers, filterState, sortState) {
         val todayStart = DateUtils.startOfDayMillis()
         var members = allMembers
 
-        // 1. Apply Search Query
         if (searchQuery.isNotBlank()) {
             members = members.filter { member ->
                 member.name.contains(searchQuery, ignoreCase = true) ||
@@ -94,7 +109,6 @@ fun AllMembersListScreen(
             }
         }
 
-        // 2. Apply Status Filters
         if (filterState.statuses.isNotEmpty()) {
             members = members.filter { member ->
                 val isActive = member.expiryDate >= todayStart
@@ -104,13 +118,11 @@ fun AllMembersListScreen(
             }
         }
 
-        // 3. Apply Balance Filter
         when (filterState.balanceOption) {
             "Has Dues" -> members = members.filter { (it.dueAdvance ?: 0.0) < 0 }
             "Has Advance" -> members = members.filter { (it.dueAdvance ?: 0.0) > 0 }
         }
 
-        // 4. Apply Date Range Filter
         val calendar = Calendar.getInstance()
         val startDate = when (filterState.dateRangeOption) {
             "Last 1 Month" -> {
@@ -126,71 +138,102 @@ fun AllMembersListScreen(
         }
         val endDate = if (filterState.dateRangeOption == "Custom") filterState.customEndDate else null
 
-        startDate?.let { start ->
-            members = members.filter { it.startDate >= start }
-        }
-        endDate?.let { end ->
-            members = members.filter { it.startDate <= end }
-        }
+        startDate?.let { start -> members = members.filter { it.startDate >= start } }
+        endDate?.let { end -> members = members.filter { it.startDate <= end } }
 
-
-        // 5. Apply Sorting
         members.sortedWith(
             when (sortState.option) {
-                "Name (A-Z)" -> compareBy { it.name }
-                "Name (Z-A)" -> compareByDescending { it.name }
-                "Expiry (Soonest First)" -> compareBy { it.expiryDate }
-                "Expiry (Latest First)" -> compareByDescending { it.expiryDate }
-                "Dues (Highest First)" -> compareBy { it.dueAdvance }
-                else -> compareBy { it.name }
+                "Name (A-Z)" -> compareBy(Member::name)
+                "Name (Z-A)" -> compareByDescending(Member::name)
+                "Expiry (Soonest First)" -> compareBy(Member::expiryDate)
+                "Expiry (Latest First)" -> compareByDescending(Member::expiryDate)
+                // Explicitly creating a Comparator to resolve the type mismatch error.
+                "Dues (Highest First)" -> Comparator { a, b ->
+                    // Dues are negative, so a smaller number means a higher due amount.
+                    // compareValues provides a null-safe comparison.
+                    compareValues(a.dueAdvance ?: 0.0, b.dueAdvance ?: 0.0)
+                }
+                else -> compareBy(Member::name)
             }
         )
     }
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("All Members") },
-                navigationIcon = {
-                    IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                actions = {
-                    IconButton(onClick = { showFilterSheet = true }) {
-                        Icon(Icons.Default.FilterList, contentDescription = "Filter and Sort")
-                    }
-                    IconButton(onClick = { menuExpanded = true }) {
-                        Icon(Icons.Default.MoreVert, contentDescription = "More Options")
-                    }
-                    DropdownMenu(
-                        expanded = menuExpanded,
-                        onDismissRequest = { menuExpanded = false }
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text("Import from CSV") },
-                            onClick = {
-                                importLauncher.launch("*/*")
-                                menuExpanded = false
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Export to CSV") },
-                            onClick = {
-                                val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
-                                exportLauncher.launch("members_$timestamp.csv")
-                                menuExpanded = false
-                            }
-                        )
-                    }
+            Column {
+                if (deleteTotal > 0) {
+                    val progressFraction: Float = if (deleteTotal > 0) deleteProgress.toFloat() / deleteTotal.toFloat() else 0f
+                    LinearProgressIndicator(progress = { progressFraction }, modifier = Modifier.fillMaxWidth())
+                    Text(
+                        text = "Deleting members: $deleteProgress / $deleteTotal",
+                        modifier = Modifier
+                            .padding(horizontal = 16.dp, vertical = 6.dp),
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                } else if (isLoading) {
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                 }
-            )
+
+                TopAppBar(
+                    title = { Text("All Members") },
+                    navigationIcon = {
+                        IconButton(onClick = { navController.popBackStack() }) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
+                    },
+                    actions = {
+                        IconButton(onClick = { showFilterSheet = true }) {
+                            Icon(Icons.Default.FilterList, contentDescription = "Filter and Sort")
+                        }
+                        IconButton(onClick = { menuExpanded = true }) {
+                            Icon(Icons.Default.MoreVert, contentDescription = "More Options")
+                        }
+                        DropdownMenu(
+                            expanded = menuExpanded,
+                            onDismissRequest = { menuExpanded = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Import from CSV") },
+                                onClick = {
+                                    menuExpanded = false
+                                    if (!isLoading) {
+                                        importLauncher.launch("*/*")
+                                    } else {
+                                        scope.launch { snackbarHostState.showSnackbar("Wait until current operation finishes.") }
+                                    }
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Export to CSV") },
+                                onClick = {
+                                    menuExpanded = false
+                                    if (!isLoading) {
+                                        val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+                                        exportLauncher.launch("members_$timestamp.csv")
+                                    } else {
+                                        scope.launch { snackbarHostState.showSnackbar("Wait until current operation finishes.") }
+                                    }
+                                }
+                            )
+                            Divider()
+                            DropdownMenuItem(
+                                text = { Text("Delete all members") },
+                                onClick = {
+                                    menuExpanded = false
+                                    showDeleteConfirm = true
+                                }
+                            )
+                        }
+                    }
+                )
+            }
         },
         floatingActionButton = {
             FloatingActionButton(onClick = { navController.navigate("add_edit_member") }) {
                 Icon(Icons.Default.Add, contentDescription = "Add Member")
             }
-        }
+        },
+        snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { paddingValues ->
         Column(modifier = Modifier.padding(paddingValues)) {
             OutlinedTextField(
@@ -205,17 +248,39 @@ fun AllMembersListScreen(
                 items(processedMembers) { member ->
                     MemberListItem(
                         member = member,
-                        onClick = { navController.navigate("member_details/${member.id}") }
+                        onClick = {
+                            navController.navigate("member_details/${member.idString}")
+                        }
                     )
                 }
             }
         }
     }
 
+    if (showDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title = { Text("Delete all members") },
+            text = { Text("This will permanently delete ALL members for the signed-in user. This action cannot be undone. Are you sure?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showDeleteConfirm = false
+                    viewModel.deleteAllMembers(context)
+                }) {
+                    Text("Delete")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
     if (showFilterSheet) {
         ModalBottomSheet(
             onDismissRequest = { showFilterSheet = false },
-            // --- FIX: Pass the sheet state to the bottom sheet ---
             sheetState = sheetState
         ) {
             FilterSortSheetContent(
@@ -263,7 +328,6 @@ private fun FilterSortSheetContent(
     val dateRangeOptions = listOf("All", "Last 1 Month", "Last 2 Months", "Custom")
     val sortOptions = listOf("Name (A-Z)", "Name (Z-A)", "Expiry (Soonest First)", "Expiry (Latest First)", "Dues (Highest First)")
 
-    // --- FIX: Added verticalScroll to handle content overflow on small screens ---
     Column(
         modifier = Modifier
             .padding(16.dp)
@@ -346,10 +410,7 @@ private fun FilterSortSheetContent(
                         .padding(vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    RadioButton(
-                        selected = tempSort.option == option,
-                        onClick = null
-                    )
+                    RadioButton(selected = tempSort.option == option, onClick = null)
                     Spacer(Modifier.width(8.dp))
                     Text(option)
                 }
@@ -362,16 +423,10 @@ private fun FilterSortSheetContent(
                 .padding(top = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            OutlinedButton(
-                onClick = onClear,
-                modifier = Modifier.weight(1f)
-            ) {
+            OutlinedButton(onClick = onClear, modifier = Modifier.weight(1f)) {
                 Text("Clear")
             }
-            Button(
-                onClick = { onApply(tempFilters, tempSort) },
-                modifier = Modifier.weight(1f)
-            ) {
+            Button(onClick = { onApply(tempFilters, tempSort) }, modifier = Modifier.weight(1f)) {
                 Text("Apply")
             }
         }

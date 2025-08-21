@@ -79,7 +79,7 @@ fun ExpiringMembersScreen(
                         member = member,
                         onSmsClick = { message -> sendSmsMessage(context, member.contact, message) },
                         onWhatsAppClick = { message -> sendWhatsAppMessage(context, member.contact, message) },
-                        onClick = { navController.navigate("member_details/${member.id}") }
+                        onClick = { navController.navigate("member_details/${member.idString}") }
                     )
                 }
             }

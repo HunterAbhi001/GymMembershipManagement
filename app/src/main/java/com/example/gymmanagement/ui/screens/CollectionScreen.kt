@@ -87,7 +87,11 @@ fun CollectionScreen(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 items(filteredMembers) { member ->
-                    RevenueListItem(member = member)
+                    RevenueListItem(
+                        member = member,
+                        // ✅ FIX: Use idString instead of id
+                        onClick = { navController.navigate("member_details/${member.idString}") }
+                    )
                 }
             }
         }
@@ -123,7 +127,6 @@ private fun CollectionFilterSheetContent(
     var customStartDate by remember { mutableStateOf<Long?>(null) }
     var customEndDate by remember { mutableStateOf<Long?>(null) }
 
-    // --- FIX: Added all requested filter options ---
     val filterOptions = listOf("Today", "Yesterday", "This Week", "Last Week", "This Month", "Last Month", "Custom")
 
     Column(
@@ -135,7 +138,6 @@ private fun CollectionFilterSheetContent(
     ) {
         Text("Filter by Date", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
 
-        // --- FIX: Used FlowRow to ensure chips wrap correctly ---
         FlowRow(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -224,9 +226,14 @@ private fun DatePickerField(
 }
 
 @Composable
-private fun RevenueListItem(member: Member) {
+private fun RevenueListItem(
+    member: Member,
+    onClick: () -> Unit
+) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
         Row(

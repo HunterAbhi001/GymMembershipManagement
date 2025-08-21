@@ -80,7 +80,7 @@ fun SearchScreen(
                     // You can reuse your existing MemberListItem or a similar composable
                     MemberListItem(
                         member = member,
-                        onClick = { navController.navigate("member_details/${member.id}") }
+                        onClick = { navController.navigate("member_details/${member.idString}") }
                         // Add other actions if needed
                     )
                 }

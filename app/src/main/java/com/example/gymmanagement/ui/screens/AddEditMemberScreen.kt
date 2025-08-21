@@ -33,14 +33,18 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.navigation.NavController
 import coil.compose.rememberAsyncImagePainter
 import com.example.gymmanagement.data.database.Member
+import com.example.gymmanagement.data.database.Plan
 import com.example.gymmanagement.ui.utils.ComposeFileProvider
 import com.example.gymmanagement.ui.utils.DateUtils.toDateString
+import com.example.gymmanagement.ui.utils.sendWhatsAppMessage
+import java.text.NumberFormat
 import java.util.*
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -48,8 +52,9 @@ import java.util.*
 fun AddEditMemberScreen(
     navController: NavController,
     member: Member?,
-    onSave: (Member) -> Unit,
-    isRenewal: Boolean = false
+    onSave: (Member, Uri?) -> Unit,
+    isRenewal: Boolean = false,
+    plans: List<Plan>
 ) {
     // Basic fields
     var name by remember { mutableStateOf("") }
@@ -65,9 +70,9 @@ fun AddEditMemberScreen(
     // Financial fields
     var priceInput by remember { mutableStateOf("") }
     var discountInput by remember { mutableStateOf("") }
-    var finalAmountInput by remember { mutableStateOf("") } // Auto-calculated
-    var amountReceivedInput by remember { mutableStateOf("") } // NEW: User input for payment
-    var dueAdvanceInput by remember { mutableStateOf("") } // Auto-calculated
+    var finalAmountInput by remember { mutableStateOf("") }
+    var amountReceivedInput by remember { mutableStateOf("") }
+    var dueAdvanceInput by remember { mutableStateOf("") }
 
     var photoUri by remember { mutableStateOf<Uri?>(null) }
     var tempUri by remember { mutableStateOf<Uri?>(null) }
@@ -81,11 +86,9 @@ fun AddEditMemberScreen(
 
     LaunchedEffect(member, isRenewal) {
         if (member == null) {
-            // New member defaults
             startDate = System.currentTimeMillis()
             expiryDate = calculateExpiryDate(startDate, selectedPlan)
         } else {
-            // Editing existing member
             name = member.name
             contact = member.contact
             selectedPlan = member.plan
@@ -98,11 +101,13 @@ fun AddEditMemberScreen(
             finalAmountInput = member.finalAmount?.toString() ?: ""
             amountReceivedInput = member.finalAmount?.toString() ?: ""
             dueAdvanceInput = member.dueAdvance?.toString() ?: ""
-            photoUri = member.photoUri?.let(Uri::parse)
+            photoUri = member.photoUri?.let { Uri.parse(it) }
 
             if (isRenewal) {
                 startDate = member.expiryDate
-                expiryDate = calculateExpiryDate(startDate, selectedPlan)
+                // --- FIXED: Clear the selected plan and reset related fields for renewal ---
+                selectedPlan = ""
+                expiryDate = calculateExpiryDate(startDate, "") // Recalculate expiry with no plan
                 priceInput = ""
                 discountInput = ""
                 finalAmountInput = ""
@@ -146,10 +151,17 @@ fun AddEditMemberScreen(
     val expiryCal = Calendar.getInstance().apply { timeInMillis = expiryDate }
     val expiryDatePicker = DatePickerDialog(context, { _: DatePicker, y: Int, m: Int, d: Int -> expiryDate = Calendar.getInstance().apply { set(y, m, d) }.timeInMillis }, expiryCal.get(Calendar.YEAR), expiryCal.get(Calendar.MONTH), expiryCal.get(Calendar.DAY_OF_MONTH))
 
-    val plans = (1..12).map { "$it Month${if (it > 1) "s" else ""}" }
     val genders = listOf("Male", "Female", "Other")
     val batches = listOf("Morning", "Evening")
     var planExpanded by remember { mutableStateOf(false) }
+
+    val fullPlanList = remember(plans) {
+        val planMap = plans.associateBy { it.planName }
+        (1..12).map {
+            val planName = "$it Month${if (it > 1) "s" else ""}"
+            planMap[planName] ?: Plan(planName = planName, price = 0.0)
+        }
+    }
 
     val isFormValid by remember { derivedStateOf { name.isNotBlank() && contact.isNotBlank() && selectedPlan.isNotBlank() && gender.isNotBlank() } }
 
@@ -172,7 +184,7 @@ fun AddEditMemberScreen(
                             expiryDate = expiryDate,
                             gender = gender,
                             photoUri = photoUri?.toString(),
-                            batch = batch.ifBlank { null },
+                            batch = batch.ifBlank { "" },
                             price = parseDoubleOrNull(priceInput),
                             discount = parseDoubleOrNull(discountInput),
                             finalAmount = parseDoubleOrNull(finalAmountInput),
@@ -186,14 +198,25 @@ fun AddEditMemberScreen(
                             expiryDate = expiryDate,
                             gender = gender,
                             photoUri = photoUri?.toString(),
-                            batch = batch.ifBlank { null },
+                            batch = batch.ifBlank { "" },
                             price = parseDoubleOrNull(priceInput),
                             discount = parseDoubleOrNull(discountInput),
                             finalAmount = parseDoubleOrNull(finalAmountInput),
                             purchaseDate = startDate,
                             dueAdvance = parseDoubleOrNull(dueAdvanceInput)
                         ))
-                        onSave(updatedMember)
+
+                        onSave(updatedMember, photoUri)
+
+                        if (member == null || isRenewal) {
+                            val firstName = updatedMember.name.split(" ").firstOrNull() ?: ""
+                            val formattedFinalAmount = formatCurrency(updatedMember.finalAmount ?: 0.0)
+                            val formattedStartDate = updatedMember.startDate.toDateString()
+                            val formattedExpiryDate = updatedMember.expiryDate.toDateString()
+                            val message = "Hi $firstName, your ${updatedMember.plan} membership for $formattedFinalAmount has started on $formattedStartDate and will expire on $formattedExpiryDate. Welcome to the gym!"
+                            sendWhatsAppMessage(context, updatedMember.contact, message)
+                        }
+
                         navController.popBackStack()
                     }) {
                         Text(when { member == null -> "Save"; isRenewal -> "Renew"; else -> "Update" })
@@ -219,9 +242,8 @@ fun AddEditMemberScreen(
             OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Full Name") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
             OutlinedTextField(value = contact, onValueChange = { contact = it }, label = { Text("Contact (Phone)") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone), singleLine = true)
 
-            // --- NEW: Gender selection with FilterChips ---
             Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.Start) {
-                Text("Gender", style = MaterialTheme.typography.bodyLarge)
+                Text("Gender", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(bottom = 8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     genders.forEach { item ->
                         FilterChip(
@@ -236,19 +258,36 @@ fun AddEditMemberScreen(
             ExposedDropdownMenuBox(expanded = planExpanded, onExpandedChange = { planExpanded = !planExpanded }) {
                 OutlinedTextField(value = selectedPlan, onValueChange = {}, readOnly = true, label = { Text("Membership Plan") }, trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = planExpanded) }, modifier = Modifier.menuAnchor().fillMaxWidth())
                 ExposedDropdownMenu(expanded = planExpanded, onDismissRequest = { planExpanded = false }) {
-                    plans.forEach { plan ->
-                        DropdownMenuItem(text = { Text(plan) }, onClick = {
-                            selectedPlan = plan
-                            expiryDate = calculateExpiryDate(startDate, plan)
-                            planExpanded = false
-                        })
+                    fullPlanList.forEach { plan ->
+                        DropdownMenuItem(
+                            text = {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(plan.planName)
+                                    if (plan.price > 0) {
+                                        Text(
+                                            text = formatCurrency(plan.price),
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                }
+                            },
+                            onClick = {
+                                selectedPlan = plan.planName
+                                expiryDate = calculateExpiryDate(startDate, plan.planName)
+                                priceInput = if (plan.price > 0) plan.price.toString() else ""
+                                planExpanded = false
+                            }
+                        )
                     }
                 }
             }
 
-            // --- NEW: Batch selection with FilterChips ---
             Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.Start) {
-                Text("Batch", style = MaterialTheme.typography.bodyLarge)
+                Text("Batch", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(bottom = 8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     batches.forEach { item ->
                         FilterChip(
@@ -260,14 +299,12 @@ fun AddEditMemberScreen(
                 }
             }
 
-            // Price Fields
             OutlinedTextField(value = priceInput, onValueChange = { priceInput = it }, label = { Text("Price") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true)
-            OutlinedTextField(value = discountInput, onValueChange = { discountInput = it }, label = { Text("Discount") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true)
+            OutlinedTextField(value = discountInput, onValueChange = { discountInput = it }, label = { Text("Discount (optional)") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true)
             OutlinedTextField(value = finalAmountInput, onValueChange = { }, readOnly = true, label = { Text("Final Amount") }, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(value = amountReceivedInput, onValueChange = { amountReceivedInput = it }, label = { Text("Amount Received") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true)
-            OutlinedTextField(value = dueAdvanceInput, onValueChange = {}, readOnly = true, label = { Text("Due / Advance") }, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(value = dueAdvanceInput, onValueChange = {}, readOnly = true, label = { Text("Due / Advance (Auto-Calculated)") }, modifier = Modifier.fillMaxWidth())
 
-            // Date Fields
             DatePickerField("Start Date", startDate.toDateString()) { startDatePicker.show() }
             DatePickerField("Expiry Date", expiryDate.toDateString()) { expiryDatePicker.show() }
             Spacer(modifier = Modifier.height(4.dp))
@@ -285,6 +322,13 @@ private fun DatePickerField(label: String, value: String, onClick: () -> Unit) {
         OutlinedTextField(value = value, onValueChange = {}, readOnly = true, label = { Text(label) }, modifier = Modifier.fillMaxWidth(), trailingIcon = { IconButton(onClick = onClick) { Icon(Icons.Default.DateRange, contentDescription = "Select Date") } })
         Box(modifier = Modifier.matchParentSize().background(Color.Transparent).clickable(onClick = onClick))
     }
+}
+
+private fun formatCurrency(value: Double): String {
+    val format = NumberFormat.getCurrencyInstance(Locale("en", "IN"))
+    format.currency = Currency.getInstance("INR")
+    format.maximumFractionDigits = 0
+    return format.format(value)
 }
 
 fun grantUriPermissionsForCamera(context: Context, uri: Uri) { val cameraIntent = Intent(MediaStore.ACTION_IMAGE_CAPTURE); val resInfoList = context.packageManager.queryIntentActivities(cameraIntent, PackageManager.MATCH_DEFAULT_ONLY); for (resolveInfo in resInfoList) { val packageName = resolveInfo.activityInfo.packageName; context.grantUriPermission(packageName, uri, Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_READ_URI_PERMISSION) } }

@@ -21,7 +21,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.example.gymmanagement.data.database.Member
-import com.example.gymmanagement.ui.theme.GreenAccent
+import com.example.gymmanagement.ui.icons.MessagesIcon
+import com.example.gymmanagement.ui.icons.WhatsAppIcon
 import com.example.gymmanagement.ui.theme.RedAccent
 import com.example.gymmanagement.ui.utils.DateUtils
 import com.example.gymmanagement.ui.utils.sendSmsMessage
@@ -84,6 +85,9 @@ fun DashboardScreen(
                 actions = {
                     IconButton(onClick = { navController.navigate("search_members") }) {
                         Icon(Icons.Default.Search, contentDescription = "Search Members")
+                    }
+                    IconButton(onClick = { navController.navigate("settings_screen") }) {
+                        Icon(Icons.Default.Settings, contentDescription = "Settings")
                     }
                 }
             )
@@ -156,13 +160,10 @@ fun DashboardScreen(
                         onClick = { navController.navigate("todays_revenue") }
                     )
                     StatCard(
-                        // --- FIX: Reverted label to "Dues" ---
                         label = "Dues",
-                        // --- FIX: Using totalDues which only calculates negative balances ---
                         count = formatCurrencyShort(totalDues),
                         icon = Icons.Default.ReceiptLong,
                         iconColor = Color(0xFFFFC107),
-                        // --- FIX: Count color is now always red if there are dues ---
                         countColor = if (totalDues < 0) RedAccent else MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier
                             .weight(1f)
@@ -225,23 +226,11 @@ fun DashboardScreen(
                 items(membersExpiringSoon.take(5)) { member ->
                     ExpiringMemberItem(
                         member = member,
-                        onSmsClick = { message ->
-                            sendSmsMessage(
-                                context,
-                                member.contact,
-                                message
-                            )
-                        },
-                        onWhatsAppClick = { message ->
-                            sendWhatsAppMessage(
-                                context,
-                                member.contact,
-                                message
-                            )
-                        },
-                        onClick = { navController.navigate("member_details/${member.id}") },
-                        onRenewClick = { navController.navigate("add_edit_member?memberId=${member.id}&isRenewal=true") },
-                        onEditClick = { navController.navigate("add_edit_member?memberId=${member.id}&isRenewal=false") },
+                        onSmsClick = { message -> sendSmsMessage(context, member.contact, message) },
+                        onWhatsAppClick = { message -> sendWhatsAppMessage(context, member.contact, message) },
+                        onClick = { navController.navigate("member_details/${member.idString}") },
+                        onRenewClick = { navController.navigate("add_edit_member?memberId=${member.idString}&isRenewal=true") },
+                        onEditClick = { navController.navigate("add_edit_member?memberId=${member.idString}&isRenewal=false") },
                         onDeleteClick = { memberToDelete = member }
                     )
                 }
@@ -353,9 +342,7 @@ fun ExpiringMemberItem(
         else -> "Expires in $daysRemaining days"
     }
 
-    val message = "Hi ${
-        member.name.split(" ").firstOrNull() ?: ""
-    }, a friendly reminder that your gym membership ${
+    val message = "Hi ${member.name.split(" ").firstOrNull() ?: ""}, a friendly reminder that your gym membership ${
         if (daysRemaining == 0L) "expires today" else "is expiring in $daysRemaining days"
     }. Please visit the front desk to renew. Thank you!"
 
@@ -402,11 +389,7 @@ fun ExpiringMemberItem(
 
             Box {
                 IconButton(onClick = { showMemberMenu = true }) {
-                    Icon(
-                        Icons.Default.MoreVert,
-                        contentDescription = "More Options",
-                        tint = Color.Gray
-                    )
+                    Icon(Icons.Default.MoreVert, contentDescription = "More Options", tint = Color.Gray)
                 }
                 DropdownMenu(
                     expanded = showMemberMenu,
@@ -414,7 +397,7 @@ fun ExpiringMemberItem(
                 ) {
                     DropdownMenuItem(
                         text = { Text("Send SMS") },
-                        leadingIcon = { Icon(Icons.Default.Sms, contentDescription = "SMS") },
+                        leadingIcon = { Icon(MessagesIcon, contentDescription = "SMS", tint = Color.Unspecified) },
                         onClick = {
                             onSmsClick(message)
                             showMemberMenu = false
@@ -422,12 +405,7 @@ fun ExpiringMemberItem(
                     )
                     DropdownMenuItem(
                         text = { Text("Send WhatsApp") },
-                        leadingIcon = {
-                            Icon(
-                                Icons.Default.Message,
-                                contentDescription = "WhatsApp"
-                            )
-                        },
+                        leadingIcon = { Icon(WhatsAppIcon, contentDescription = "WhatsApp", tint = Color.Unspecified) },
                         onClick = {
                             onWhatsAppClick(message)
                             showMemberMenu = false
@@ -436,12 +414,7 @@ fun ExpiringMemberItem(
                     Divider()
                     DropdownMenuItem(
                         text = { Text("Renew") },
-                        leadingIcon = {
-                            Icon(
-                                Icons.Default.Autorenew,
-                                contentDescription = "Renew"
-                            )
-                        },
+                        leadingIcon = { Icon(Icons.Default.Autorenew, contentDescription = "Renew") },
                         onClick = {
                             onRenewClick()
                             showMemberMenu = false
@@ -489,12 +462,10 @@ private fun formatCurrencyShort(value: Double): String {
             format.currency = Currency.getInstance("INR")
             format.format(value)
         }
-
         absValue < 1_00_000 -> {
             val thousands = absValue / 1000.0
             "$sign$currencySymbol${formatter(thousands)}K"
         }
-
         else -> {
             val lakhs = absValue / 1_00_000.0
             "$sign$currencySymbol${formatter(lakhs)}L"

@@ -15,12 +15,12 @@ import com.example.gymmanagement.ui.screens.*
 import com.example.gymmanagement.viewmodel.MainViewModel
 import com.example.gymmanagement.viewmodel.MainViewModelFactory
 
+// --- FIX: The 'application' parameter is no longer needed for the navigator ---
 @Composable
-fun AppNavigator(application: GymManagementApplication) {
+fun AppNavigator() {
     val navController = rememberNavController()
-    val viewModel: MainViewModel = viewModel(
-        factory = MainViewModelFactory(application.database.memberDao())
-    )
+    // --- FIX: The ViewModelFactory is now parameterless because it doesn't need the local database ---
+    val viewModel: MainViewModel = viewModel(factory = MainViewModelFactory())
 
     NavHost(navController = navController, startDestination = "dashboard") {
         composable("dashboard") {
@@ -30,12 +30,9 @@ fun AppNavigator(application: GymManagementApplication) {
             val todaysRevenue by viewModel.todaysRevenue.collectAsState()
             val totalBalance by viewModel.totalBalance.collectAsState()
             val totalDues by viewModel.totalDues.collectAsState()
-            // This value is now calculated inside the DashboardScreen, so we don't need to collect it here.
 
             DisposableEffect(Unit) {
-                onDispose {
-                    viewModel.onSearchQueryChange("")
-                }
+                onDispose { viewModel.onSearchQueryChange("") }
             }
 
             DashboardScreen(
@@ -47,7 +44,15 @@ fun AppNavigator(application: GymManagementApplication) {
                 todaysRevenue = todaysRevenue,
                 totalBalance = totalBalance,
                 totalDues = totalDues
-                // --- FIX: Removed the extra netDuesAdvance parameter ---
+            )
+        }
+
+        composable("settings_screen") {
+            val allPlans by viewModel.allPlans.collectAsState()
+            SettingsScreen(
+                navController = navController,
+                plans = allPlans,
+                onSavePlan = { plan -> viewModel.savePlanPrice(plan) }
             )
         }
 
@@ -59,21 +64,21 @@ fun AppNavigator(application: GymManagementApplication) {
             )
         }
 
-        composable("collections") {
-            val filteredMembers by viewModel.filteredCollection.collectAsState()
-            CollectionScreen(
-                navController = navController,
-                filteredMembers = filteredMembers,
-                onDateFilterChange = { filter, start, end -> viewModel.onCollectionDateFilterChange(filter, start, end) }
-            )
-        }
-
         composable("dues_advance") {
             val membersWithDues by viewModel.membersWithDues.collectAsState()
             DuesScreen(
                 navController = navController,
                 membersWithDues = membersWithDues,
                 onUpdateDues = { member, amountPaid -> viewModel.updateDueAdvance(member, amountPaid) }
+            )
+        }
+
+        composable("collections") {
+            val filteredMembers by viewModel.filteredCollection.collectAsState()
+            CollectionScreen(
+                navController = navController,
+                filteredMembers = filteredMembers,
+                onDateFilterChange = { filter, start, end -> viewModel.onCollectionDateFilterChange(filter, start, end) }
             )
         }
 
@@ -97,9 +102,7 @@ fun AppNavigator(application: GymManagementApplication) {
             val searchedMembers by viewModel.allMembers.collectAsState()
 
             DisposableEffect(Unit) {
-                onDispose {
-                    viewModel.onSearchQueryChange("")
-                }
+                onDispose { viewModel.onSearchQueryChange("") }
             }
 
             SearchScreen(
@@ -115,8 +118,7 @@ fun AppNavigator(application: GymManagementApplication) {
             AllMembersListScreen(
                 navController = navController,
                 allMembers = allMembers,
-                onImport = { uri -> viewModel.importMembersFromCsv(application, uri) },
-                onExport = { uri -> viewModel.exportMembersToCsv(application, uri) }
+                viewModel = viewModel
             )
         }
 
@@ -146,15 +148,16 @@ fun AppNavigator(application: GymManagementApplication) {
 
         composable(
             route = "member_details/{memberId}",
-            arguments = listOf(navArgument("memberId") { type = NavType.IntType })
+            arguments = listOf(navArgument("memberId") { type = NavType.StringType })
         ) { backStackEntry ->
-            val memberId = backStackEntry.arguments?.getInt("memberId") ?: 0
-            val member by viewModel.getMemberById(memberId).collectAsState(initial = null)
+            val memberId = backStackEntry.arguments?.getString("memberId") ?: ""
+            val allMembers by viewModel.allMembers.collectAsState()
+            val member = allMembers.find { it.idString == memberId }
 
             MemberDetailScreen(
                 navController = navController,
                 member = member,
-                onDelete = { if (member != null) viewModel.deleteMember(member!!) }
+                onDelete = { if (member != null) viewModel.deleteMember(member) }
             )
         }
 
@@ -162,8 +165,8 @@ fun AppNavigator(application: GymManagementApplication) {
             route = "add_edit_member?memberId={memberId}&isRenewal={isRenewal}",
             arguments = listOf(
                 navArgument("memberId") {
-                    type = NavType.IntType
-                    defaultValue = -1
+                    type = NavType.StringType
+                    defaultValue = "new_member"
                 },
                 navArgument("isRenewal") {
                     type = NavType.BoolType
@@ -171,22 +174,23 @@ fun AppNavigator(application: GymManagementApplication) {
                 }
             )
         ) { backStackEntry ->
-            val memberId = backStackEntry.arguments?.getInt("memberId") ?: -1
+            val memberId = backStackEntry.arguments?.getString("memberId") ?: "new_member"
             val isRenewal = backStackEntry.arguments?.getBoolean("isRenewal") ?: false
+            val allMembers by viewModel.allMembers.collectAsState()
+            val allPlans by viewModel.allPlans.collectAsState()
 
-            val member: com.example.gymmanagement.data.database.Member? =
-                if (memberId == -1) {
-                    null
-                } else {
-                    val m by viewModel.getMemberById(memberId).collectAsState(initial = null)
-                    m
-                }
+            val member = if (memberId == "new_member") {
+                null
+            } else {
+                allMembers.find { it.idString == memberId }
+            }
 
             AddEditMemberScreen(
                 navController = navController,
                 member = member,
-                onSave = { memberToSave -> viewModel.addOrUpdateMember(memberToSave) },
-                isRenewal = isRenewal
+                onSave = { memberToSave, photoUri -> viewModel.addOrUpdateMember(memberToSave, photoUri) },
+                isRenewal = isRenewal,
+                plans = allPlans
             )
         }
     }
