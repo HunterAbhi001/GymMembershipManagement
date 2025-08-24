@@ -1,88 +1,117 @@
 package com.example.gymmanagement.ui.screens
 
+import android.content.Intent
+import android.net.Uri
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Sms
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.rememberVectorPainter
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
-import coil.compose.AsyncImage
+import coil.compose.rememberAsyncImagePainter
+import com.example.gymmanagement.R
 import com.example.gymmanagement.data.database.Member
+import com.example.gymmanagement.data.database.MembershipHistory
+import com.example.gymmanagement.ui.icons.MessagesIcon
 import com.example.gymmanagement.ui.icons.WhatsAppIcon
-import com.example.gymmanagement.ui.theme.Green
-import com.example.gymmanagement.ui.theme.Red
+import com.example.gymmanagement.ui.theme.RedAccent
+import com.example.gymmanagement.ui.utils.DateUtils
 import com.example.gymmanagement.ui.utils.DateUtils.toDateString
 import com.example.gymmanagement.ui.utils.sendSmsMessage
 import com.example.gymmanagement.ui.utils.sendWhatsAppMessage
+import com.example.gymmanagement.viewmodel.MainViewModel
 import java.text.NumberFormat
 import java.util.*
+import java.util.concurrent.TimeUnit
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MemberDetailScreen(
     navController: NavController,
     member: Member?,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    viewModel: MainViewModel // ViewModel is now passed in
 ) {
-    var showDeleteDialog by remember { mutableStateOf(false) }
-    var showFullImage by remember { mutableStateOf(false) }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
-    val todayStart = remember {
-        Calendar.getInstance().apply {
-            set(Calendar.HOUR_OF_DAY, 0)
-            set(Calendar.MINUTE, 0)
-            set(Calendar.SECOND, 0)
-            set(Calendar.MILLISECOND, 0)
-        }.timeInMillis
+    // --- Fetch and collect the member's history ---
+    LaunchedEffect(member) {
+        if (member != null) {
+            viewModel.fetchMemberHistory(member.idString)
+        }
+    }
+    val history by viewModel.memberHistory.collectAsState()
+
+
+    if (showDeleteConfirm && member != null) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title = { Text("Confirm Deletion") },
+            text = { Text("Are you sure you want to delete ${member.name}?") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onDelete()
+                        showDeleteConfirm = false
+                        navController.popBackStack()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = RedAccent)
+                ) {
+                    Text("Delete")
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { showDeleteConfirm = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(member?.name ?: "Member Details") },
+                title = { Text("Member Details") },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
                 actions = {
-                    IconButton(onClick = {
-                        val message = "Hi ${member?.name}, regarding your gym membership..."
-                        sendSmsMessage(context, member?.contact ?: "", message)
-                    }) {
-                        Icon(Icons.Default.Sms, contentDescription = "Send SMS")
-                    }
-                    IconButton(onClick = {
-                        val message = "Hi ${member?.name}, regarding your gym membership..."
-                        sendWhatsAppMessage(context, member?.contact ?: "", message)
-                    }) {
-                        Icon(WhatsAppIcon, contentDescription = "Send WhatsApp Message", tint = Color.Unspecified)
-                    }
-                    IconButton(onClick = {
-                        navController.navigate("add_edit_member?memberId=${member?.idString}&isRenewal=false")
-                    }) {
-                        Icon(Icons.Default.Edit, contentDescription = "Edit Member")
-                    }
-                    IconButton(onClick = { showDeleteDialog = true }) {
-                        Icon(Icons.Default.Delete, contentDescription = "Delete Member", tint = MaterialTheme.colorScheme.error)
+                    if (member != null) {
+                        val sevenDaysFromNow = System.currentTimeMillis() + TimeUnit.DAYS.toMillis(7)
+                        if (member.expiryDate < sevenDaysFromNow) {
+                            IconButton(onClick = { navController.navigate("add_edit_member?memberId=${member.idString}&isRenewal=true") }) {
+                                Icon(Icons.Default.Autorenew, contentDescription = "Renew Membership")
+                            }
+                        }
+                        IconButton(onClick = { navController.navigate("add_edit_member?memberId=${member.idString}&isRenewal=false") }) {
+                            Icon(Icons.Default.Edit, contentDescription = "Edit Member")
+                        }
+                        IconButton(onClick = { showDeleteConfirm = true }) {
+                            Icon(Icons.Default.Delete, contentDescription = "Delete Member")
+                        }
                     }
                 }
             )
@@ -90,85 +119,231 @@ fun MemberDetailScreen(
     ) { paddingValues ->
         if (member == null) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
+                Text("Member not found.")
             }
         } else {
-            Column(modifier = Modifier.fillMaxSize().padding(paddingValues).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                val isExpired = member.expiryDate < todayStart
-                DetailCard(member, onImageClick = { showFullImage = true }, isExpired = isExpired)
-
-                if (isExpired) {
-                    // --- FIX: Corrected the parameter name from "isRenew" to "isRenewal" ---
-                    Button(onClick = { navController.navigate("add_edit_member?memberId=${member.idString}&isRenewal=true") }, colors = ButtonDefaults.buttonColors(containerColor = Green), modifier = Modifier.fillMaxWidth()) {
-                        Text("Renew Membership")
-                    }
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues)
+            ) {
+                item {
+                    MemberHeader(member = member)
+                }
+                item {
+                    MembershipInfoCard(member = member)
+                }
+                item {
+                    PaymentInfoCard(member = member)
+                }
+                item {
+                    // --- Pass the fetched history to the card ---
+                    MembershipHistoryCard(history = history)
                 }
             }
         }
     }
+}
 
-    if (showDeleteDialog) {
-        AlertDialog(
-            onDismissRequest = { showDeleteDialog = false },
-            title = { Text("Delete Member") },
-            text = { Text("Are you sure you want to delete ${member?.name}? This action cannot be undone.") },
-            confirmButton = {
-                Button(onClick = { onDelete(); showDeleteDialog = false; navController.popBackStack() }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) {
-                    Text("Delete")
-                }
-            },
-            dismissButton = {
-                Button(onClick = { showDeleteDialog = false }) { Text("Cancel") }
+@Composable
+private fun MemberHeader(member: Member) {
+    val context = LocalContext.current
+    val status = if (member.expiryDate >= DateUtils.startOfDayMillis()) "Active" else "Expired"
+    val statusColor = if (status == "Active") Color(0xFF4CAF50) else RedAccent
+
+    val message = "Hi ${member.name.split(" ").firstOrNull() ?: ""}, this is a message from the gym regarding your membership. Your current status is '$status' and your membership expires on ${member.expiryDate.toDateString()}."
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(
+                        MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
+                        MaterialTheme.colorScheme.background
+                    )
+                )
+            )
+            .padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(120.dp)
+                .clip(CircleShape)
+                .border(2.dp, MaterialTheme.colorScheme.primary, CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Image(
+                painter = rememberAsyncImagePainter(
+                    model = member.photoUri,
+                    error = painterResource(id = R.drawable.ic_person_placeholder)
+                ),
+                contentDescription = "Member Photo",
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+        }
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                text = member.name,
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = status,
+                color = statusColor,
+                fontWeight = FontWeight.SemiBold,
+                style = MaterialTheme.typography.bodyMedium
+            )
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+            IconButton(onClick = { sendSmsMessage(context, member.contact, message) }) {
+                Icon(MessagesIcon, contentDescription = "Send SMS", modifier = Modifier.size(28.dp))
             }
+            IconButton(onClick = { sendWhatsAppMessage(context, member.contact, message) }) {
+                Icon(WhatsAppIcon, contentDescription = "Send WhatsApp", modifier = Modifier.size(28.dp))
+            }
+            IconButton(onClick = {
+                val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:${member.contact}"))
+                context.startActivity(intent)
+            }) {
+                Icon(Icons.Default.Call, contentDescription = "Call", modifier = Modifier.size(28.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun MembershipInfoCard(member: Member) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        elevation = CardDefaults.cardElevation(2.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text("Membership Details", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(16.dp))
+            InfoRow(icon = Icons.Default.Badge, label = "Gender", value = member.gender ?: "N/A")
+            InfoRow(icon = Icons.Default.FitnessCenter, label = "Plan", value = member.plan)
+            InfoRow(icon = Icons.Default.AccessTime, label = "Batch", value = member.batch ?: "N/A")
+            InfoRow(icon = Icons.Default.Event, label = "Start Date", value = member.startDate.toDateString())
+            InfoRow(icon = Icons.Default.EventBusy, label = "Expiry Date", value = member.expiryDate.toDateString())
+        }
+    }
+}
+
+@Composable
+private fun PaymentInfoCard(member: Member) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        elevation = CardDefaults.cardElevation(2.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text("Payment Information", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(16.dp))
+            InfoRow(icon = Icons.Default.CalendarToday, label = "Purchase Date", value = member.purchaseDate?.toDateString() ?: "N/A")
+            InfoRow(icon = Icons.Default.PriceCheck, label = "Price", value = formatCurrency(member.price))
+            InfoRow(icon = Icons.Default.TrendingDown, label = "Discount", value = formatCurrency(member.discount))
+            InfoRow(icon = Icons.Default.ReceiptLong, label = "Final Amount", value = formatCurrency(member.finalAmount), isHighlight = true)
+            InfoRow(icon = Icons.Default.AccountBalanceWallet, label = "Due / Advance", value = formatCurrency(member.dueAdvance))
+        }
+    }
+}
+
+@Composable
+private fun MembershipHistoryCard(history: List<MembershipHistory>) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        elevation = CardDefaults.cardElevation(2.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text("Membership History", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(16.dp))
+            if (history.isEmpty()) {
+                Text("No past membership records found.", color = Color.Gray)
+            } else {
+                history.forEach { record ->
+                    HistoryListItem(record)
+                    Divider(modifier = Modifier.padding(vertical = 8.dp))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HistoryListItem(record: MembershipHistory) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = Icons.Default.History,
+            contentDescription = "History Entry",
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(24.dp)
+        )
+        Spacer(modifier = Modifier.width(16.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(text = record.plan, fontWeight = FontWeight.SemiBold)
+            Text(
+                text = "${record.startDate.toDateString()} - ${record.expiryDate.toDateString()}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        Text(
+            text = formatCurrency(record.finalAmount),
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.primary
         )
     }
+}
 
-    if (showFullImage && member?.photoUri != null) {
-        Dialog(onDismissRequest = { showFullImage = false }) {
-            Box(modifier = Modifier.fillMaxSize().background(Color.Black).clickable { showFullImage = false }, contentAlignment = Alignment.Center) {
-                AsyncImage(model = member.photoUri, contentDescription = "Full Image", contentScale = ContentScale.Fit, placeholder = rememberVectorPainter(Icons.Default.Person), error = rememberVectorPainter(Icons.Default.Person), modifier = Modifier.fillMaxWidth())
-            }
-        }
+
+@Composable
+private fun InfoRow(
+    icon: ImageVector,
+    label: String,
+    value: String,
+    isHighlight: Boolean = false
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = label,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(20.dp)
+        )
+        Spacer(modifier = Modifier.width(16.dp))
+        Text(text = label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(modifier = Modifier.weight(1f))
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = if (isHighlight) FontWeight.Bold else FontWeight.Normal,
+            color = if (isHighlight) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+        )
     }
 }
 
-@Composable
-fun DetailCard(member: Member, onImageClick: () -> Unit, isExpired: Boolean) {
-    val nf = NumberFormat.getCurrencyInstance(Locale("en", "IN"))
-    nf.currency = Currency.getInstance("INR")
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                AsyncImage(model = member.photoUri, contentDescription = "Member Photo", modifier = Modifier.size(80.dp).clip(CircleShape).clickable { onImageClick() }, contentScale = ContentScale.Crop, placeholder = rememberVectorPainter(Icons.Default.Person), error = rememberVectorPainter(Icons.Default.Person))
-                Spacer(modifier = Modifier.width(16.dp))
-                Column {
-                    val status = if (!isExpired) "Active" else "Expired"
-                    val statusColor = if (!isExpired) Green else Red
-                    Text(member.name, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                    Text(member.contact, style = MaterialTheme.typography.bodyLarge)
-                    Text(status, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = statusColor)
-                }
-            }
-            Divider(modifier = Modifier.padding(vertical = 8.dp))
-
-            InfoRow("Gender", member.gender ?: "Not specified")
-            InfoRow("Plan", member.plan)
-            InfoRow("Batch", member.batch ?: "—")
-            InfoRow("Start Date", member.startDate.toDateString())
-            InfoRow("Expiry Date", member.expiryDate.toDateString())
-            InfoRow("Purchase Date", member.purchaseDate?.toDateString() ?: "—")
-            InfoRow("Price", member.price?.let { nf.format(it) } ?: "—")
-            InfoRow("Discount", member.discount?.let { nf.format(it) } ?: "—")
-            InfoRow("Final Amount", member.finalAmount?.let { nf.format(it) } ?: "—")
-            InfoRow("Due / Advance", member.dueAdvance?.let { nf.format(it) } ?: "—")
-        }
-    }
-}
-
-@Composable
-fun InfoRow(label: String, value: String, contentColor: Color = Color.Unspecified) {
-    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-        Text(label, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(value, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = contentColor)
-    }
+private fun formatCurrency(value: Double?): String {
+    if (value == null) return "N/A"
+    val format = NumberFormat.getCurrencyInstance(Locale("en", "IN"))
+    format.currency = Currency.getInstance("INR")
+    format.maximumFractionDigits = 2
+    return format.format(value)
 }

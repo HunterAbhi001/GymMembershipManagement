@@ -8,6 +8,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
+import android.util.Log
 import android.widget.DatePicker
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -16,9 +17,11 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -30,15 +33,18 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.navigation.NavController
 import coil.compose.rememberAsyncImagePainter
+import com.example.gymmanagement.R
 import com.example.gymmanagement.data.database.Member
 import com.example.gymmanagement.data.database.Plan
 import com.example.gymmanagement.ui.utils.ComposeFileProvider
@@ -54,7 +60,8 @@ fun AddEditMemberScreen(
     member: Member?,
     onSave: (Member, Uri?) -> Unit,
     isRenewal: Boolean = false,
-    plans: List<Plan>
+    plans: List<Plan>,
+    isDarkTheme: Boolean
 ) {
     // Basic fields
     var name by remember { mutableStateOf("") }
@@ -77,6 +84,7 @@ fun AddEditMemberScreen(
     var photoUri by remember { mutableStateOf<Uri?>(null) }
     var tempUri by remember { mutableStateOf<Uri?>(null) }
     var showPhotoPickerDialog by remember { mutableStateOf(false) }
+    var isSaving by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
 
@@ -105,9 +113,8 @@ fun AddEditMemberScreen(
 
             if (isRenewal) {
                 startDate = member.expiryDate
-                // --- FIXED: Clear the selected plan and reset related fields for renewal ---
                 selectedPlan = ""
-                expiryDate = calculateExpiryDate(startDate, "") // Recalculate expiry with no plan
+                expiryDate = calculateExpiryDate(startDate, "")
                 priceInput = ""
                 discountInput = ""
                 finalAmountInput = ""
@@ -165,17 +172,44 @@ fun AddEditMemberScreen(
 
     val isFormValid by remember { derivedStateOf { name.isNotBlank() && contact.isNotBlank() && selectedPlan.isNotBlank() && gender.isNotBlank() } }
 
+    val backgroundModifier = if (isDarkTheme) {
+        Modifier.background(
+            Brush.verticalGradient(
+                colors = listOf(Color(0xFF0D1B2A), Color(0xFF1A237E).copy(alpha = 0.5f))
+            )
+        )
+    } else {
+        Modifier.background(MaterialTheme.colorScheme.background)
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text( when { member == null -> "Add Member"; isRenewal -> "Renew Member"; else -> "Edit Member" }) },
-                navigationIcon = { IconButton(onClick = { navController.popBackStack() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") } }
+                navigationIcon = { IconButton(onClick = { navController.popBackStack() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") } },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = if (isDarkTheme) Color.Transparent else MaterialTheme.colorScheme.surface,
+                    titleContentColor = MaterialTheme.colorScheme.onSurface,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onSurface
+                )
             )
         },
         bottomBar = {
-            if (isFormValid) {
-                Row(modifier = Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.Center) {
-                    Button(onClick = {
+            Surface(
+                shadowElevation = 8.dp,
+                color = if (isDarkTheme) Color.Black.copy(alpha = 0.3f) else MaterialTheme.colorScheme.surface
+            ) {
+                Button(
+                    onClick = {
+                        isSaving = true
+
+                        // --- FIXED: Correctly determine the purchase date ---
+                        val purchaseDateToSave = if (isRenewal || member == null) {
+                            System.currentTimeMillis() // For new members and renewals, the purchase is today.
+                        } else {
+                            member.purchaseDate ?: startDate // For edits, keep the original purchase date.
+                        }
+
                         val updatedMember = (member?.copy(
                             name = name.trim(),
                             contact = contact.trim(),
@@ -188,7 +222,7 @@ fun AddEditMemberScreen(
                             price = parseDoubleOrNull(priceInput),
                             discount = parseDoubleOrNull(discountInput),
                             finalAmount = parseDoubleOrNull(finalAmountInput),
-                            purchaseDate = startDate,
+                            purchaseDate = purchaseDateToSave,
                             dueAdvance = parseDoubleOrNull(dueAdvanceInput)
                         ) ?: Member(
                             name = name.trim(),
@@ -202,7 +236,7 @@ fun AddEditMemberScreen(
                             price = parseDoubleOrNull(priceInput),
                             discount = parseDoubleOrNull(discountInput),
                             finalAmount = parseDoubleOrNull(finalAmountInput),
-                            purchaseDate = startDate,
+                            purchaseDate = purchaseDateToSave,
                             dueAdvance = parseDoubleOrNull(dueAdvanceInput)
                         ))
 
@@ -213,101 +247,127 @@ fun AddEditMemberScreen(
                             val formattedFinalAmount = formatCurrency(updatedMember.finalAmount ?: 0.0)
                             val formattedStartDate = updatedMember.startDate.toDateString()
                             val formattedExpiryDate = updatedMember.expiryDate.toDateString()
-                            val message = "Hi $firstName, your ${updatedMember.plan} membership for $formattedFinalAmount has started on $formattedStartDate and will expire on $formattedExpiryDate. Welcome to the gym!"
-                            sendWhatsAppMessage(context, updatedMember.contact, message)
+                            val message = "Hi $firstName, your ${updatedMember.plan} membership for $formattedFinalAmount has started on $formattedStartDate and will expire on $formattedExpiryDate. Welcome to the Gym!"
+                            try {
+                                sendWhatsAppMessage(context, updatedMember.contact, message)
+                            } catch (e: Exception) {
+                                Log.e("AddEditMemberScreen", "Could not send WhatsApp message", e)
+                                Toast.makeText(context, "Could not open WhatsApp.", Toast.LENGTH_SHORT).show()
+                            }
                         }
 
                         navController.popBackStack()
-                    }) {
-                        Text(when { member == null -> "Save"; isRenewal -> "Renew"; else -> "Update" })
+                    },
+                    enabled = isFormValid && !isSaving,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp)
+                        .height(50.dp)
+                ) {
+                    if (isSaving) {
+                        CircularProgressIndicator(modifier = Modifier.size(24.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
+                    } else {
+                        Text(
+                            text = when { member == null -> "Save Member"; isRenewal -> "Renew Membership"; else -> "Update Member" },
+                            style = MaterialTheme.typography.titleMedium
+                        )
                     }
                 }
             }
-        }
+        },
+        containerColor = Color.Transparent,
+        modifier = Modifier.fillMaxSize().then(backgroundModifier)
     ) { paddingValues ->
         Column(
-            modifier = Modifier.fillMaxSize().padding(paddingValues).padding(horizontal = 16.dp).verticalScroll(rememberScrollState()),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+                .verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             Spacer(modifier = Modifier.height(4.dp))
-            Box(modifier = Modifier.size(120.dp).clip(CircleShape).background(MaterialTheme.colorScheme.secondaryContainer).border(2.dp, MaterialTheme.colorScheme.primary, CircleShape).clickable { showPhotoPickerDialog = true }, contentAlignment = Alignment.Center) {
+            Box(
+                modifier = Modifier
+                    .size(120.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.secondaryContainer)
+                    .border(2.dp, MaterialTheme.colorScheme.primary, CircleShape)
+                    .clickable { showPhotoPickerDialog = true },
+                contentAlignment = Alignment.Center
+            ) {
                 if (photoUri != null) {
-                    Image(painter = rememberAsyncImagePainter(photoUri), contentDescription = "Member Photo", modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                    Image(
+                        painter = rememberAsyncImagePainter(model = photoUri, error = painterResource(id = R.drawable.ic_person_placeholder)),
+                        contentDescription = "Member Photo",
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
                 } else {
-                    Icon(Icons.Default.AddAPhoto, contentDescription = "Add Photo", modifier = Modifier.size(48.dp))
+                    Icon(Icons.Default.AddAPhoto, contentDescription = "Add Photo", modifier = Modifier.size(48.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer)
                 }
             }
 
-            OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Full Name") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-            OutlinedTextField(value = contact, onValueChange = { contact = it }, label = { Text("Contact (Phone)") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone), singleLine = true)
-
-            Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.Start) {
-                Text("Gender", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(bottom = 8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    genders.forEach { item ->
-                        FilterChip(
-                            selected = (gender == item),
-                            onClick = { gender = item },
-                            label = { Text(item) }
-                        )
+            // --- Personal Details Section ---
+            FormSection(title = "Personal Details", isDarkTheme = isDarkTheme) {
+                OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Full Name") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                OutlinedTextField(value = contact, onValueChange = { contact = it }, label = { Text("Contact (Phone)") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone), singleLine = true)
+                Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.Start) {
+                    Text("Gender", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(bottom = 8.dp, top = 8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        genders.forEach { item ->
+                            FilterChip(selected = (gender == item), onClick = { gender = item }, label = { Text(item) })
+                        }
                     }
                 }
             }
 
-            ExposedDropdownMenuBox(expanded = planExpanded, onExpandedChange = { planExpanded = !planExpanded }) {
-                OutlinedTextField(value = selectedPlan, onValueChange = {}, readOnly = true, label = { Text("Membership Plan") }, trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = planExpanded) }, modifier = Modifier.menuAnchor().fillMaxWidth())
-                ExposedDropdownMenu(expanded = planExpanded, onDismissRequest = { planExpanded = false }) {
-                    fullPlanList.forEach { plan ->
-                        DropdownMenuItem(
-                            text = {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text(plan.planName)
-                                    if (plan.price > 0) {
-                                        Text(
-                                            text = formatCurrency(plan.price),
-                                            fontWeight = FontWeight.SemiBold,
-                                            color = MaterialTheme.colorScheme.primary
-                                        )
+            // --- Membership Plan Section ---
+            FormSection(title = "Membership Plan", isDarkTheme = isDarkTheme) {
+                ExposedDropdownMenuBox(expanded = planExpanded, onExpandedChange = { planExpanded = !planExpanded }) {
+                    OutlinedTextField(value = selectedPlan, onValueChange = {}, readOnly = true, label = { Text("Membership Plan") }, trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = planExpanded) }, modifier = Modifier.menuAnchor().fillMaxWidth())
+                    ExposedDropdownMenu(expanded = planExpanded, onDismissRequest = { planExpanded = false }) {
+                        fullPlanList.forEach { plan ->
+                            DropdownMenuItem(
+                                text = {
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        Text(plan.planName)
+                                        if (plan.price > 0) {
+                                            Text(text = formatCurrency(plan.price), fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
+                                        }
                                     }
+                                },
+                                onClick = {
+                                    selectedPlan = plan.planName
+                                    expiryDate = calculateExpiryDate(startDate, plan.planName)
+                                    priceInput = if (plan.price > 0) plan.price.toString() else ""
+                                    planExpanded = false
                                 }
-                            },
-                            onClick = {
-                                selectedPlan = plan.planName
-                                expiryDate = calculateExpiryDate(startDate, plan.planName)
-                                priceInput = if (plan.price > 0) plan.price.toString() else ""
-                                planExpanded = false
-                            }
-                        )
+                            )
+                        }
                     }
                 }
-            }
-
-            Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.Start) {
-                Text("Batch", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(bottom = 8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    batches.forEach { item ->
-                        FilterChip(
-                            selected = (batch == item),
-                            onClick = { batch = item },
-                            label = { Text(item) }
-                        )
+                Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.Start) {
+                    Text("Batch", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(bottom = 8.dp, top = 16.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        batches.forEach { item ->
+                            FilterChip(selected = (batch == item), onClick = { batch = item }, label = { Text(item) })
+                        }
                     }
                 }
+                DatePickerField("Start Date", startDate.toDateString()) { startDatePicker.show() }
+                DatePickerField("Expiry Date", expiryDate.toDateString()) { expiryDatePicker.show() }
             }
 
-            OutlinedTextField(value = priceInput, onValueChange = { priceInput = it }, label = { Text("Price") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true)
-            OutlinedTextField(value = discountInput, onValueChange = { discountInput = it }, label = { Text("Discount (optional)") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true)
-            OutlinedTextField(value = finalAmountInput, onValueChange = { }, readOnly = true, label = { Text("Final Amount") }, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(value = amountReceivedInput, onValueChange = { amountReceivedInput = it }, label = { Text("Amount Received") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true)
-            OutlinedTextField(value = dueAdvanceInput, onValueChange = {}, readOnly = true, label = { Text("Due / Advance (Auto-Calculated)") }, modifier = Modifier.fillMaxWidth())
-
-            DatePickerField("Start Date", startDate.toDateString()) { startDatePicker.show() }
-            DatePickerField("Expiry Date", expiryDate.toDateString()) { expiryDatePicker.show() }
-            Spacer(modifier = Modifier.height(4.dp))
+            // --- Payment Section ---
+            FormSection(title = "Payment", isDarkTheme = isDarkTheme) {
+                OutlinedTextField(value = priceInput, onValueChange = { priceInput = it }, label = { Text("Price") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true)
+                OutlinedTextField(value = discountInput, onValueChange = { discountInput = it }, label = { Text("Discount (optional)") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true)
+                OutlinedTextField(value = finalAmountInput, onValueChange = { }, readOnly = true, label = { Text("Final Amount") }, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = amountReceivedInput, onValueChange = { amountReceivedInput = it }, label = { Text("Amount Received") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true)
+                OutlinedTextField(value = dueAdvanceInput, onValueChange = {}, readOnly = true, label = { Text("Due / Advance") }, modifier = Modifier.fillMaxWidth())
+            }
+            Spacer(modifier = Modifier.height(16.dp))
         }
     }
 
@@ -315,6 +375,43 @@ fun AddEditMemberScreen(
         AlertDialog(onDismissRequest = { showPhotoPickerDialog = false }, title = { Text("Select Option") }, text = { Column { Text("Take Photo", modifier = Modifier.fillMaxWidth().clickable { showPhotoPickerDialog = false; launchCameraWithCheck() }.padding(12.dp)); Text("Choose from Gallery", modifier = Modifier.fillMaxWidth().clickable { showPhotoPickerDialog = false; pickImageFromGallery() }.padding(12.dp)) } }, confirmButton = { TextButton(onClick = { showPhotoPickerDialog = false }) { Text("Cancel") } })
     }
 }
+
+@Composable
+private fun FormSection(
+    title: String,
+    isDarkTheme: Boolean,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    val cardModifier = if (isDarkTheme) {
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color.White.copy(alpha = 0.1f))
+            .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(16.dp))
+    } else {
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(MaterialTheme.colorScheme.surface)
+            .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f), RoundedCornerShape(16.dp))
+    }
+
+    Column(modifier = cardModifier) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            content()
+        }
+    }
+}
+
 
 @Composable
 private fun DatePickerField(label: String, value: String, onClick: () -> Unit) {

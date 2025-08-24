@@ -137,7 +137,8 @@ fun AppNavigator(
             val members by viewModel.membersExpiringSoon.collectAsState()
             ExpiringMembersScreen(
                 navController = navController,
-                members = members
+                members = members,
+                onDeleteMember = { member -> viewModel.deleteMember(member) }
             )
         }
 
@@ -160,7 +161,8 @@ fun AppNavigator(
             MemberDetailScreen(
                 navController = navController,
                 member = member,
-                onDelete = { if (member != null) viewModel.deleteMember(member) }
+                onDelete = { if (member != null) viewModel.deleteMember(member) },
+                viewModel = viewModel
             )
         }
 
@@ -193,10 +195,11 @@ fun AppNavigator(
                 navController = navController,
                 member = member,
                 onSave = { memberToSave, photoUri ->
-                    viewModel.addOrUpdateMember(memberToSave, photoUri, context)
+                    viewModel.addOrUpdateMember(memberToSave, photoUri, context, isRenewal)
                 },
                 isRenewal = isRenewal,
-                plans = allPlans
+                plans = allPlans,
+                isDarkTheme = isDarkTheme
             )
         }
     }

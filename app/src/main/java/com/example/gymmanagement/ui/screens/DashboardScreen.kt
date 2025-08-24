@@ -185,7 +185,7 @@ fun DashboardScreen(
                     horizontalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     StatCard(
-                        label = "Today's Revenue",
+                        label = "Today's Collection",
                         count = formatCurrencyShort(todaysRevenue),
                         icon = Icons.Default.CurrencyRupee,
                         gradient = revenueGradient,

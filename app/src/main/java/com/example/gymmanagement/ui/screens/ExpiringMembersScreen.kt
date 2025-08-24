@@ -1,5 +1,6 @@
 package com.example.gymmanagement.ui.screens
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -9,16 +10,24 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Autorenew
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
+import coil.compose.rememberAsyncImagePainter
+import com.example.gymmanagement.R
 import com.example.gymmanagement.data.database.Member
 import com.example.gymmanagement.ui.icons.MessagesIcon
 import com.example.gymmanagement.ui.icons.WhatsAppIcon
@@ -32,10 +41,12 @@ import java.util.concurrent.TimeUnit
 @Composable
 fun ExpiringMembersScreen(
     navController: NavController,
-    members: List<Member>
+    members: List<Member>,
+    onDeleteMember: (Member) -> Unit
 ) {
     val context = LocalContext.current
     var searchQuery by remember { mutableStateOf("") }
+    var memberToDelete by remember { mutableStateOf<Member?>(null) }
 
     val filteredMembers = remember(searchQuery, members) {
         if (searchQuery.isBlank()) {
@@ -46,6 +57,30 @@ fun ExpiringMembersScreen(
                         member.contact.contains(searchQuery, ignoreCase = true)
             }
         }
+    }
+
+    if (memberToDelete != null) {
+        AlertDialog(
+            onDismissRequest = { memberToDelete = null },
+            title = { Text("Confirm Deletion") },
+            text = { Text("Are you sure you want to delete ${memberToDelete!!.name}?") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onDeleteMember(memberToDelete!!)
+                        memberToDelete = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = RedAccent)
+                ) {
+                    Text("Delete")
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { memberToDelete = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 
     Scaffold(
@@ -72,13 +107,12 @@ fun ExpiringMembersScreen(
 
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(horizontal = 16.dp)
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 items(filteredMembers) { member ->
-                    ExpiringMemberListItem(
+                    ModernExpiringMemberListItem(
                         member = member,
-                        onSmsClick = { message -> sendSmsMessage(context, member.contact, message) },
-                        onWhatsAppClick = { message -> sendWhatsAppMessage(context, member.contact, message) },
                         onClick = { navController.navigate("member_details/${member.idString}") }
                     )
                 }
@@ -89,19 +123,13 @@ fun ExpiringMembersScreen(
 
 
 @Composable
-fun ExpiringMemberListItem(
+private fun ModernExpiringMemberListItem(
     member: Member,
-    onSmsClick: (String) -> Unit,
-    onWhatsAppClick: (String) -> Unit,
     onClick: () -> Unit
 ) {
     val todayStart = DateUtils.startOfDayMillis()
     val diff = member.expiryDate - todayStart
     val daysRemaining = TimeUnit.MILLISECONDS.toDays(diff).coerceAtLeast(0)
-
-    val firstName = remember(member.name) {
-        member.name.split(" ").firstOrNull() ?: member.name
-    }
 
     val expiryText = when (daysRemaining) {
         0L -> "Expires today"
@@ -109,65 +137,60 @@ fun ExpiringMemberListItem(
         else -> "Expires in $daysRemaining days"
     }
 
-    // The message still uses the first name for a personal touch
-    val message = "Hi $firstName, a friendly reminder that your gym membership ${
-        if (daysRemaining == 0L) "expires today" else "is expiring in $daysRemaining days"
-    }. Please visit the front desk to renew. Thank you!"
+    val statusColor = if (daysRemaining <= 3) RedAccent else Color(0xFFFFC107)
 
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp)
             .clickable(onClick = onClick),
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(16.dp),
+        elevation = CardDefaults.cardElevation(4.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            modifier = Modifier.padding(16.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Box(
+            Image(
+                painter = rememberAsyncImagePainter(
+                    model = member.photoUri,
+                    error = painterResource(id = R.drawable.ic_person_placeholder)
+                ),
+                contentDescription = "Member Photo",
                 modifier = Modifier
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primary),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = member.name.firstOrNull()?.toString() ?: "",
-                    color = MaterialTheme.colorScheme.onPrimary,
-                    fontWeight = FontWeight.Bold
-                )
-            }
+                    .size(56.dp)
+                    .clip(CircleShape),
+                contentScale = ContentScale.Crop
+            )
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    // --- FIX: Display the member's full name on the screen ---
                     text = member.name,
                     fontWeight = FontWeight.Bold,
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurface
                 )
+                Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = expiryText,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (daysRemaining <= 3) RedAccent else MaterialTheme.colorScheme.onSurfaceVariant
+                    text = member.contact,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
 
-            IconButton(onClick = { onSmsClick(message) }) {
-                Icon(
-                    imageVector = MessagesIcon,
-                    contentDescription = "Send SMS",
-                    tint = Color.Unspecified
+            Column(horizontalAlignment = Alignment.End) {
+                Text(
+                    text = expiryText,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = statusColor,
+                    fontWeight = FontWeight.SemiBold
                 )
-            }
-            IconButton(onClick = { onWhatsAppClick(message) }) {
-                Icon(
-                    imageVector = WhatsAppIcon,
-                    contentDescription = "Send WhatsApp",
-                    tint = Color.Unspecified
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = member.plan,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }

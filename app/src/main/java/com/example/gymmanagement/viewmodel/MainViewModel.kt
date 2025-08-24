@@ -11,6 +11,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.gymmanagement.data.database.Member
+import com.example.gymmanagement.data.database.MembershipHistory
 import com.example.gymmanagement.data.database.Plan
 import com.example.gymmanagement.ui.screens.MonthlySignupData
 import com.example.gymmanagement.ui.screens.PlanPopularityData
@@ -65,6 +66,11 @@ class MainViewModel : ViewModel() {
 
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
+
+    // --- ADDED: StateFlow to hold the membership history for a specific member ---
+    private val _memberHistory = MutableStateFlow<List<MembershipHistory>>(emptyList())
+    val memberHistory: StateFlow<List<MembershipHistory>> = _memberHistory.asStateFlow()
+
 
     private val userUidFlow = callbackFlow<String?> {
         val listener = FirebaseAuth.AuthStateListener { firebaseAuth ->
@@ -190,12 +196,20 @@ class MainViewModel : ViewModel() {
         }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), emptyList())
 
     val filteredCollection: StateFlow<List<Member>> = combine(allMembers, _collectionDateFilter, _customDateRange) { members, filter, customRange ->
-        val calendar = Calendar.getInstance()
+        val tz = TimeZone.getDefault()
+        val calendar = Calendar.getInstance(tz)
+
         val (startDate, endDate) = when (filter) {
-            "Today" -> Pair(DateUtils.startOfDayMillis(calendar.timeInMillis), DateUtils.endOfDayMillis(calendar.timeInMillis))
+            "Today" -> {
+                val start = DateUtils.startOfDayMillis(calendar.timeInMillis)
+                val end = DateUtils.endOfDayMillis(calendar.timeInMillis)
+                Pair(start, end)
+            }
             "Yesterday" -> {
                 calendar.add(Calendar.DATE, -1)
-                Pair(DateUtils.startOfDayMillis(calendar.timeInMillis), DateUtils.endOfDayMillis(calendar.timeInMillis))
+                val start = DateUtils.startOfDayMillis(calendar.timeInMillis)
+                val end = DateUtils.endOfDayMillis(calendar.timeInMillis)
+                Pair(start, end)
             }
             "This Week" -> {
                 calendar.set(Calendar.DAY_OF_WEEK, calendar.firstDayOfWeek)
@@ -242,8 +256,8 @@ class MainViewModel : ViewModel() {
 
     fun onSearchQueryChange(query: String) { _searchQuery.value = query }
 
-    // --- UPDATED: This function now includes image compression ---
-    fun addOrUpdateMember(member: Member, photoUri: Uri?, context: Context) = viewModelScope.launch {
+    // --- UPDATED: This function now saves a history record on add/renew ---
+    fun addOrUpdateMember(member: Member, photoUri: Uri?, context: Context, isRenewal: Boolean) = viewModelScope.launch {
         _isLoading.value = true
         val userId = auth.currentUser?.uid ?: run {
             _isLoading.value = false
@@ -251,27 +265,20 @@ class MainViewModel : ViewModel() {
             return@launch
         }
         var memberToSave = member.copy(userId = userId)
+        var memberId = member.idString
 
         photoUri?.let { uri ->
             val photoRef = storage.reference.child("images/$userId/${System.currentTimeMillis()}_photo.jpg")
             try {
-                // --- IMAGE COMPRESSION LOGIC START ---
-                // Switch to a background thread for image processing
                 val compressedImageData = withContext(Dispatchers.IO) {
                     val inputStream = context.contentResolver.openInputStream(uri)
                     val bitmap = BitmapFactory.decodeStream(inputStream)
-
                     val outputStream = ByteArrayOutputStream()
-                    // Compress the bitmap to JPEG with 80% quality. You can adjust this value.
                     bitmap.compress(Bitmap.CompressFormat.JPEG, 80, outputStream)
                     outputStream.toByteArray()
                 }
-                // --- IMAGE COMPRESSION LOGIC END ---
-
-                // Upload the compressed byte array instead of the original file
                 val downloadUrl = photoRef.putBytes(compressedImageData).await().storage.downloadUrl.await()
                 memberToSave = memberToSave.copy(photoUri = downloadUrl.toString())
-
             } catch (e: Exception) {
                 Log.w("MainVM", "Photo upload/compression failed", e)
                 Toast.makeText(context, "Failed to upload photo.", Toast.LENGTH_SHORT).show()
@@ -279,11 +286,29 @@ class MainViewModel : ViewModel() {
         }
 
         try {
-            if (memberToSave.idString.isBlank()) {
-                firestore.collection("users").document(userId).collection("members").add(memberToSave).await()
+            if (memberId.isBlank()) {
+                // This is a new member, add them to the database
+                val newMemberRef = firestore.collection("users").document(userId).collection("members").add(memberToSave).await()
+                memberId = newMemberRef.id // Get the new ID for the history record
             } else {
-                firestore.collection("users").document(userId).collection("members").document(memberToSave.idString).set(memberToSave).await()
+                // This is an existing member, update their details
+                firestore.collection("users").document(userId).collection("members").document(memberId).set(memberToSave).await()
             }
+
+            // --- SAVE HISTORY RECORD ---
+            // Create a history record only for new members or renewals
+            if (member.idString.isBlank() || isRenewal) {
+                val historyRecord = MembershipHistory(
+                    plan = memberToSave.plan,
+                    startDate = memberToSave.startDate,
+                    expiryDate = memberToSave.expiryDate,
+                    finalAmount = memberToSave.finalAmount
+                )
+                firestore.collection("users").document(userId)
+                    .collection("members").document(memberId)
+                    .collection("history").add(historyRecord).await()
+            }
+
         } catch (e: Exception) {
             Log.e("MainVM", "add/update member failed", e)
             _errorMessage.value = "Save failed: ${e.message}"
@@ -297,7 +322,6 @@ class MainViewModel : ViewModel() {
         val userId = auth.currentUser?.uid ?: return@launch
         if (member.idString.isNotBlank()) {
             try {
-                // Also delete the photo from storage if it exists
                 member.photoUri?.let { uri ->
                     if (uri.isNotBlank()) {
                         storage.getReferenceFromUrl(uri).delete().await()
@@ -330,7 +354,6 @@ class MainViewModel : ViewModel() {
                 _deleteProgress.value = 0
                 val batch = firestore.batch()
                 snapshot.documents.forEach { doc ->
-                    // Delete photo from storage
                     val member = doc.toObject(Member::class.java)
                     member?.photoUri?.let { uri ->
                         if (uri.isNotBlank()) {
@@ -417,7 +440,7 @@ class MainViewModel : ViewModel() {
 
             var importedCount = 0
             members.forEach { member ->
-                addOrUpdateMember(member, null, context)
+                addOrUpdateMember(member, null, context, isRenewal = false) // Imported members are not renewals
                 importedCount++
                 Log.d("MainVM_Import", "Attempting to import member ${importedCount}/${members.size}: ${member.name}")
             }
@@ -430,6 +453,29 @@ class MainViewModel : ViewModel() {
         } finally {
             _isLoading.value = false
             Log.d("MainVM_Import", "CSV import process finished.")
+        }
+    }
+
+    // --- ADDED: Function to fetch the history for a specific member ---
+    fun fetchMemberHistory(memberId: String) {
+        viewModelScope.launch {
+            val userId = auth.currentUser?.uid ?: return@launch
+            if (memberId.isBlank()) {
+                _memberHistory.value = emptyList()
+                return@launch
+            }
+            try {
+                val snapshot = firestore.collection("users").document(userId)
+                    .collection("members").document(memberId)
+                    .collection("history")
+                    .orderBy("transactionDate", com.google.firebase.firestore.Query.Direction.DESCENDING)
+                    .get().await()
+
+                _memberHistory.value = snapshot.toObjects(MembershipHistory::class.java)
+            } catch (e: Exception) {
+                Log.e("MainVM", "Failed to fetch member history", e)
+                _errorMessage.value = "Could not load history."
+            }
         }
     }
 }
