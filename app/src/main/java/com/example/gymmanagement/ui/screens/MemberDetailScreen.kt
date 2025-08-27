@@ -5,6 +5,7 @@ import android.net.Uri
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -27,6 +28,8 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.navigation.NavController
 import coil.compose.rememberAsyncImagePainter
 import com.example.gymmanagement.R
@@ -50,12 +53,11 @@ fun MemberDetailScreen(
     navController: NavController,
     member: Member?,
     onDelete: () -> Unit,
-    viewModel: MainViewModel // ViewModel is now passed in
+    viewModel: MainViewModel
 ) {
     var showDeleteConfirm by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
-    // --- Fetch and collect the member's history ---
     LaunchedEffect(member) {
         if (member != null) {
             viewModel.fetchMemberHistory(member.idString)
@@ -137,7 +139,6 @@ fun MemberDetailScreen(
                     PaymentInfoCard(member = member)
                 }
                 item {
-                    // --- Pass the fetched history to the card ---
                     MembershipHistoryCard(history = history)
                 }
             }
@@ -150,8 +151,16 @@ private fun MemberHeader(member: Member) {
     val context = LocalContext.current
     val status = if (member.expiryDate >= DateUtils.startOfDayMillis()) "Active" else "Expired"
     val statusColor = if (status == "Active") Color(0xFF4CAF50) else RedAccent
+    var showImagePreview by remember { mutableStateOf(false) }
 
-    val message = "Hi ${member.name.split(" ").firstOrNull() ?: ""}, this is a message from the gym regarding your membership. Your current status is '$status' and your membership expires on ${member.expiryDate.toDateString()}."
+    val message = "Hi ${member.name.split(" ").firstOrNull() ?: ""}, this is a message from the gym regarding your membership. Your current status is '$status' and your membership is/was valid till ${member.expiryDate.toDateString()}."
+
+    if (showImagePreview && member.photoUri != null) {
+        FullScreenImageViewer(
+            uri = Uri.parse(member.photoUri),
+            onDismiss = { showImagePreview = false }
+        )
+    }
 
     Column(
         modifier = Modifier
@@ -172,7 +181,8 @@ private fun MemberHeader(member: Member) {
             modifier = Modifier
                 .size(120.dp)
                 .clip(CircleShape)
-                .border(2.dp, MaterialTheme.colorScheme.primary, CircleShape),
+                .border(2.dp, MaterialTheme.colorScheme.primary, CircleShape)
+                .clickable { if (member.photoUri != null) showImagePreview = true },
             contentAlignment = Alignment.Center
         ) {
             Image(
@@ -337,6 +347,38 @@ private fun InfoRow(
             fontWeight = if (isHighlight) FontWeight.Bold else FontWeight.Normal,
             color = if (isHighlight) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
         )
+    }
+}
+
+@Composable
+private fun FullScreenImageViewer(uri: Uri, onDismiss: () -> Unit) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.8f))
+                .clickable(onClick = onDismiss),
+            contentAlignment = Alignment.Center
+        ) {
+            Image(
+                painter = rememberAsyncImagePainter(model = uri),
+                contentDescription = "Full Screen Member Photo",
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
+            )
+            IconButton(
+                onClick = onDismiss,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(16.dp)
+            ) {
+                Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
+            }
+        }
     }
 }
 

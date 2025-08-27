@@ -27,26 +27,36 @@ object CsvUtils {
                 reader.readLine() // Skip header line
                 var lineCount = 1
                 reader.forEachLine { line ->
+                    // --- FIXED: Ignore any lines that are completely blank ---
+                    if (line.isBlank()) {
+                        return@forEachLine // Skips to the next line
+                    }
+
                     val tokens = parseCsvLine(line)
                     // Check if the row has the correct number of columns
                     if (tokens.size == 12) {
                         try {
-                            val member = Member(
-                                // idString and userId will be set by the ViewModel upon saving
-                                name = tokens[0],
-                                contact = tokens[1], // "Mobile" column
-                                plan = tokens[2],
-                                startDate = parseDateFlexible(tokens[3]) ?: 0L,
-                                expiryDate = parseDateFlexible(tokens[4]) ?: 0L,
-                                gender = tokens[5].takeIf { it.isNotBlank() },
-                                batch = tokens[6].takeIf { it.isNotBlank() },
-                                price = tokens[7].toDoubleOrNull() ?: 0.0,
-                                discount = tokens[8].toDoubleOrNull() ?: 0.0,
-                                finalAmount = tokens[9].toDoubleOrNull() ?: 0.0,
-                                purchaseDate = parseDateFlexible(tokens[10]) ?: 0L,
-                                dueAdvance = tokens[11].toDoubleOrNull() ?: 0.0
-                            )
-                            members.add(member)
+                            // --- FIXED: Add a check to ensure the name field is not blank ---
+                            val name = tokens[0]
+                            if (name.isNotBlank()) {
+                                val member = Member(
+                                    name = name,
+                                    contact = tokens[1], // "Mobile" column
+                                    plan = tokens[2],
+                                    startDate = parseDateFlexible(tokens[3]) ?: 0L,
+                                    expiryDate = parseDateFlexible(tokens[4]) ?: 0L,
+                                    gender = tokens[5].takeIf { it.isNotBlank() },
+                                    batch = tokens[6].takeIf { it.isNotBlank() },
+                                    price = tokens[7].toDoubleOrNull() ?: 0.0,
+                                    discount = tokens[8].toDoubleOrNull() ?: 0.0,
+                                    finalAmount = tokens[9].toDoubleOrNull() ?: 0.0,
+                                    purchaseDate = parseDateFlexible(tokens[10]) ?: 0L,
+                                    dueAdvance = tokens[11].toDoubleOrNull() ?: 0.0
+                                )
+                                members.add(member)
+                            } else {
+                                Log.w("CsvUtils", "Skipping row $lineCount because name is blank.")
+                            }
                         } catch (e: Exception) {
                             Log.e("CsvUtils", "Error parsing row $lineCount: $line", e)
                         }

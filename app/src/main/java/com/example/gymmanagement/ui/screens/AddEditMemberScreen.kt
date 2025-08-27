@@ -247,7 +247,7 @@ fun AddEditMemberScreen(
                             val formattedFinalAmount = formatCurrency(updatedMember.finalAmount ?: 0.0)
                             val formattedStartDate = updatedMember.startDate.toDateString()
                             val formattedExpiryDate = updatedMember.expiryDate.toDateString()
-                            val message = "Hi $firstName, your ${updatedMember.plan} membership for $formattedFinalAmount has started on $formattedStartDate and will expire on $formattedExpiryDate. Welcome to the Gym!"
+                            val message = "Hi $firstName, your ${updatedMember.plan} membership for $formattedFinalAmount has started on $formattedStartDate and will expire on $formattedExpiryDate. Welcome to the Iron House Gym!"
                             try {
                                 sendWhatsAppMessage(context, updatedMember.contact, message)
                             } catch (e: Exception) {

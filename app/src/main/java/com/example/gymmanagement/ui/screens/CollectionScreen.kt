@@ -2,12 +2,14 @@ package com.example.gymmanagement.ui.screens
 
 import android.app.DatePickerDialog
 import android.widget.DatePicker
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -18,10 +20,15 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
+import coil.compose.rememberAsyncImagePainter
+import com.example.gymmanagement.R
 import com.example.gymmanagement.data.database.Member
 import kotlinx.coroutines.launch
 import java.text.NumberFormat
@@ -62,18 +69,30 @@ fun CollectionScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .padding(16.dp)
+                .padding(horizontal = 16.dp)
         ) {
             Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+                elevation = CardDefaults.cardElevation(4.dp)
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text("Total Collection for Period", style = MaterialTheme.typography.titleMedium)
+                Column(
+                    modifier = Modifier.padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        "Total Collection for Period",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
                     Text(
                         text = formatCurrency(totalCollection),
-                        style = MaterialTheme.typography.headlineLarge,
-                        fontWeight = FontWeight.ExtraBold
+                        style = MaterialTheme.typography.displaySmall,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
                     )
                 }
             }
@@ -82,14 +101,15 @@ fun CollectionScreen(
 
             Text("Transactions", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
 
+            Spacer(modifier = Modifier.height(8.dp))
+
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 items(filteredMembers) { member ->
-                    RevenueListItem(
+                    ModernRevenueListItem(
                         member = member,
-                        // ✅ FIX: Use idString instead of id
                         onClick = { navController.navigate("member_details/${member.idString}") }
                     )
                 }
@@ -226,7 +246,7 @@ private fun DatePickerField(
 }
 
 @Composable
-private fun RevenueListItem(
+private fun ModernRevenueListItem(
     member: Member,
     onClick: () -> Unit
 ) {
@@ -234,16 +254,42 @@ private fun RevenueListItem(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
+        shape = RoundedCornerShape(16.dp),
+        elevation = CardDefaults.cardElevation(2.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
         Row(
             modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            Image(
+                painter = rememberAsyncImagePainter(
+                    model = member.photoUri,
+                    error = painterResource(id = R.drawable.ic_person_placeholder)
+                ),
+                contentDescription = "Member Photo",
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(CircleShape),
+                contentScale = ContentScale.Crop
+            )
+
             Column(modifier = Modifier.weight(1f)) {
-                Text(member.name, fontWeight = FontWeight.Bold)
-                Text(member.plan, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    text = member.name,
+                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = member.plan,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
+
             Text(
                 text = formatCurrency(member.finalAmount ?: 0.0),
                 fontWeight = FontWeight.SemiBold,
@@ -256,5 +302,6 @@ private fun RevenueListItem(
 private fun formatCurrency(value: Double): String {
     val format = NumberFormat.getCurrencyInstance(Locale("en", "IN"))
     format.currency = Currency.getInstance("INR")
+    format.maximumFractionDigits = 2
     return format.format(value)
 }

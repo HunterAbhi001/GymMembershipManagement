@@ -67,7 +67,6 @@ class MainViewModel : ViewModel() {
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
 
-    // --- ADDED: StateFlow to hold the membership history for a specific member ---
     private val _memberHistory = MutableStateFlow<List<MembershipHistory>>(emptyList())
     val memberHistory: StateFlow<List<MembershipHistory>> = _memberHistory.asStateFlow()
 
@@ -246,17 +245,18 @@ class MainViewModel : ViewModel() {
         }
 
         if (startDate != null && endDate != null) {
-            members.filter { (it.purchaseDate ?: 0L) in startDate..endDate }
+            // --- FIXED: Changed filter to use startDate instead of purchaseDate ---
+            members.filter { it.startDate in startDate..endDate }
         } else {
             val todayStart = DateUtils.startOfDayMillis()
             val todayEnd = DateUtils.endOfDayMillis()
-            members.filter { (it.purchaseDate ?: 0L) in todayStart..todayEnd }
+            // --- FIXED: Changed filter to use startDate instead of purchaseDate ---
+            members.filter { it.startDate in todayStart..todayEnd }
         }
     }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), emptyList())
 
     fun onSearchQueryChange(query: String) { _searchQuery.value = query }
 
-    // --- UPDATED: This function now saves a history record on add/renew ---
     fun addOrUpdateMember(member: Member, photoUri: Uri?, context: Context, isRenewal: Boolean) = viewModelScope.launch {
         _isLoading.value = true
         val userId = auth.currentUser?.uid ?: run {
@@ -271,32 +271,39 @@ class MainViewModel : ViewModel() {
             val photoRef = storage.reference.child("images/$userId/${System.currentTimeMillis()}_photo.jpg")
             try {
                 val compressedImageData = withContext(Dispatchers.IO) {
-                    val inputStream = context.contentResolver.openInputStream(uri)
-                    val bitmap = BitmapFactory.decodeStream(inputStream)
-                    val outputStream = ByteArrayOutputStream()
-                    bitmap.compress(Bitmap.CompressFormat.JPEG, 80, outputStream)
-                    outputStream.toByteArray()
+                    context.contentResolver.openInputStream(uri)?.use { inputStream ->
+                        val bitmap = BitmapFactory.decodeStream(inputStream)
+                        if (bitmap == null) {
+                            Log.e("MainVM", "Failed to decode bitmap from URI: $uri")
+                            return@withContext null
+                        }
+                        val outputStream = ByteArrayOutputStream()
+                        bitmap.compress(Bitmap.CompressFormat.JPEG, 80, outputStream)
+                        outputStream.toByteArray()
+                    }
                 }
-                val downloadUrl = photoRef.putBytes(compressedImageData).await().storage.downloadUrl.await()
-                memberToSave = memberToSave.copy(photoUri = downloadUrl.toString())
+
+                if (compressedImageData != null) {
+                    val downloadUrl = photoRef.putBytes(compressedImageData).await().storage.downloadUrl.await()
+                    memberToSave = memberToSave.copy(photoUri = downloadUrl.toString())
+                } else {
+                    Toast.makeText(context, "Could not process image.", Toast.LENGTH_SHORT).show()
+                }
+
             } catch (e: Exception) {
-                Log.w("MainVM", "Photo upload/compression failed", e)
-                Toast.makeText(context, "Failed to upload photo.", Toast.LENGTH_SHORT).show()
+                Log.e("MainVM", "Photo upload/compression failed", e)
+                Toast.makeText(context, "Failed to upload photo: ${e.message}", Toast.LENGTH_SHORT).show()
             }
         }
 
         try {
             if (memberId.isBlank()) {
-                // This is a new member, add them to the database
                 val newMemberRef = firestore.collection("users").document(userId).collection("members").add(memberToSave).await()
-                memberId = newMemberRef.id // Get the new ID for the history record
+                memberId = newMemberRef.id
             } else {
-                // This is an existing member, update their details
                 firestore.collection("users").document(userId).collection("members").document(memberId).set(memberToSave).await()
             }
 
-            // --- SAVE HISTORY RECORD ---
-            // Create a history record only for new members or renewals
             if (member.idString.isBlank() || isRenewal) {
                 val historyRecord = MembershipHistory(
                     plan = memberToSave.plan,
@@ -440,7 +447,7 @@ class MainViewModel : ViewModel() {
 
             var importedCount = 0
             members.forEach { member ->
-                addOrUpdateMember(member, null, context, isRenewal = false) // Imported members are not renewals
+                addOrUpdateMember(member, null, context, isRenewal = false)
                 importedCount++
                 Log.d("MainVM_Import", "Attempting to import member ${importedCount}/${members.size}: ${member.name}")
             }
@@ -456,7 +463,6 @@ class MainViewModel : ViewModel() {
         }
     }
 
-    // --- ADDED: Function to fetch the history for a specific member ---
     fun fetchMemberHistory(memberId: String) {
         viewModelScope.launch {
             val userId = auth.currentUser?.uid ?: return@launch
