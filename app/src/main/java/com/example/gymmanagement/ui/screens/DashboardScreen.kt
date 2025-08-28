@@ -91,7 +91,6 @@ fun DashboardScreen(
         )
     }
 
-    // --- FIXED: Changed to a vertical gradient to resolve the compiler error ---
     val backgroundModifier = if (isDarkTheme) {
         Modifier.background(
             Brush.verticalGradient(

@@ -13,11 +13,11 @@ import android.widget.DatePicker
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -50,6 +50,8 @@ import com.example.gymmanagement.data.database.Plan
 import com.example.gymmanagement.ui.utils.ComposeFileProvider
 import com.example.gymmanagement.ui.utils.DateUtils.toDateString
 import com.example.gymmanagement.ui.utils.sendWhatsAppMessage
+import com.example.gymmanagement.viewmodel.MainViewModel
+import com.example.gymmanagement.viewmodel.UiEvent
 import java.text.NumberFormat
 import java.util.*
 
@@ -58,7 +60,7 @@ import java.util.*
 fun AddEditMemberScreen(
     navController: NavController,
     member: Member?,
-    onSave: (Member, Uri?) -> Unit,
+    viewModel: MainViewModel,
     isRenewal: Boolean = false,
     plans: List<Plan>,
     isDarkTheme: Boolean
@@ -87,6 +89,38 @@ fun AddEditMemberScreen(
     var isSaving by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
+    var errorToShow by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(Unit) {
+        viewModel.uiEvents.collect { event ->
+            when (event) {
+                is UiEvent.ShowToast -> {
+                    Toast.makeText(context, event.message, Toast.LENGTH_SHORT).show()
+                }
+                is UiEvent.ShowError -> {
+                    errorToShow = event.message
+                    isSaving = false
+                }
+                is UiEvent.SaveSuccess -> {
+                    navController.popBackStack()
+                }
+            }
+        }
+    }
+
+    if (errorToShow != null) {
+        AlertDialog(
+            onDismissRequest = { errorToShow = null },
+            title = { Text("Operation Failed") },
+            text = { Text(errorToShow!!) },
+            confirmButton = {
+                TextButton(onClick = { errorToShow = null }) {
+                    Text("OK")
+                }
+            }
+        )
+    }
+
 
     fun parseDoubleOrNull(text: String): Double? {
         return text.trim().takeIf { it.isNotBlank() }?.replace("[^0-9.-]".toRegex(), "")?.toDoubleOrNull()
@@ -170,7 +204,7 @@ fun AddEditMemberScreen(
         }
     }
 
-    val isFormValid by remember { derivedStateOf { name.isNotBlank() && contact.isNotBlank() && selectedPlan.isNotBlank() && gender.isNotBlank() } }
+    val isFormValid by remember { derivedStateOf { name.isNotBlank() } }
 
     val backgroundModifier = if (isDarkTheme) {
         Modifier.background(
@@ -203,11 +237,10 @@ fun AddEditMemberScreen(
                     onClick = {
                         isSaving = true
 
-                        // --- FIXED: Correctly determine the purchase date ---
                         val purchaseDateToSave = if (isRenewal || member == null) {
-                            System.currentTimeMillis() // For new members and renewals, the purchase is today.
+                            System.currentTimeMillis()
                         } else {
-                            member.purchaseDate ?: startDate // For edits, keep the original purchase date.
+                            member.purchaseDate ?: startDate
                         }
 
                         val updatedMember = (member?.copy(
@@ -240,9 +273,15 @@ fun AddEditMemberScreen(
                             dueAdvance = parseDoubleOrNull(dueAdvanceInput)
                         ))
 
-                        onSave(updatedMember, photoUri)
+                        viewModel.addOrUpdateMember(
+                            member = updatedMember,
+                            photoUri = photoUri,
+                            context = context,
+                            isRenewal = isRenewal,
+                            amountReceived = parseDoubleOrNull(amountReceivedInput) ?: 0.0
+                        )
 
-                        if (member == null || isRenewal) {
+                        if ((member == null || isRenewal) && updatedMember.contact.isNotBlank()) {
                             val firstName = updatedMember.name.split(" ").firstOrNull() ?: ""
                             val formattedFinalAmount = formatCurrency(updatedMember.finalAmount ?: 0.0)
                             val formattedStartDate = updatedMember.startDate.toDateString()
@@ -255,8 +294,6 @@ fun AddEditMemberScreen(
                                 Toast.makeText(context, "Could not open WhatsApp.", Toast.LENGTH_SHORT).show()
                             }
                         }
-
-                        navController.popBackStack()
                     },
                     enabled = isFormValid && !isSaving,
                     modifier = Modifier
@@ -308,7 +345,6 @@ fun AddEditMemberScreen(
                 }
             }
 
-            // --- Personal Details Section ---
             FormSection(title = "Personal Details", isDarkTheme = isDarkTheme) {
                 OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Full Name") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
                 OutlinedTextField(value = contact, onValueChange = { contact = it }, label = { Text("Contact (Phone)") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone), singleLine = true)
@@ -322,7 +358,6 @@ fun AddEditMemberScreen(
                 }
             }
 
-            // --- Membership Plan Section ---
             FormSection(title = "Membership Plan", isDarkTheme = isDarkTheme) {
                 ExposedDropdownMenuBox(expanded = planExpanded, onExpandedChange = { planExpanded = !planExpanded }) {
                     OutlinedTextField(value = selectedPlan, onValueChange = {}, readOnly = true, label = { Text("Membership Plan") }, trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = planExpanded) }, modifier = Modifier.menuAnchor().fillMaxWidth())
@@ -340,7 +375,17 @@ fun AddEditMemberScreen(
                                 onClick = {
                                     selectedPlan = plan.planName
                                     expiryDate = calculateExpiryDate(startDate, plan.planName)
-                                    priceInput = if (plan.price > 0) plan.price.toString() else ""
+                                    val newPrice = if (plan.price > 0) plan.price.toString() else ""
+                                    priceInput = newPrice
+
+                                    val price = parseDoubleOrNull(newPrice)
+                                    val discount = parseDoubleOrNull(discountInput)
+                                    if (price != null) {
+                                        val calculatedAmount = price - (discount ?: 0.0)
+                                        amountReceivedInput = if (calculatedAmount >= 0) "%.2f".format(calculatedAmount) else "0.00"
+                                    } else {
+                                        amountReceivedInput = ""
+                                    }
                                     planExpanded = false
                                 }
                             )
@@ -359,7 +404,6 @@ fun AddEditMemberScreen(
                 DatePickerField("Expiry Date", expiryDate.toDateString()) { expiryDatePicker.show() }
             }
 
-            // --- Payment Section ---
             FormSection(title = "Payment", isDarkTheme = isDarkTheme) {
                 OutlinedTextField(value = priceInput, onValueChange = { priceInput = it }, label = { Text("Price") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true)
                 OutlinedTextField(value = discountInput, onValueChange = { discountInput = it }, label = { Text("Discount (optional)") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true)
@@ -382,21 +426,25 @@ private fun FormSection(
     isDarkTheme: Boolean,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    val cardModifier = if (isDarkTheme) {
-        Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(Color.White.copy(alpha = 0.1f))
-            .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(16.dp))
+    val cardColors = if (isDarkTheme) {
+        CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.1f))
     } else {
-        Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(MaterialTheme.colorScheme.surface)
-            .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f), RoundedCornerShape(16.dp))
+        CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     }
 
-    Column(modifier = cardModifier) {
+    val cardBorder = if (isDarkTheme) {
+        BorderStroke(1.dp, Color.White.copy(alpha = 0.2f))
+    } else {
+        BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        elevation = CardDefaults.cardElevation(if (isDarkTheme) 0.dp else 2.dp),
+        colors = cardColors,
+        border = cardBorder
+    ) {
         Column(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)

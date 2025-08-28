@@ -3,30 +3,38 @@ package com.example.gymmanagement.viewmodel
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Matrix
+import androidx.exifinterface.media.ExifInterface
 import android.net.Uri
-import android.os.Build
 import android.util.Log
-import android.widget.Toast
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.gymmanagement.data.database.Member
 import com.example.gymmanagement.data.database.MembershipHistory
+import com.example.gymmanagement.data.database.Payment
 import com.example.gymmanagement.data.database.Plan
 import com.example.gymmanagement.ui.screens.MonthlySignupData
 import com.example.gymmanagement.ui.screens.PlanPopularityData
 import com.example.gymmanagement.ui.utils.CsvUtils
 import com.example.gymmanagement.ui.utils.DateUtils
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.DocumentReference
+import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.ktx.firestore
 import com.google.firebase.firestore.ktx.snapshots
 import com.google.firebase.ktx.Firebase
 import com.google.firebase.storage.ktx.storage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.combine
@@ -34,7 +42,6 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
@@ -43,6 +50,12 @@ import java.io.ByteArrayOutputStream
 import java.text.SimpleDateFormat
 import java.util.*
 import java.util.concurrent.TimeUnit
+
+sealed class UiEvent {
+    data class ShowToast(val message: String) : UiEvent()
+    data class ShowError(val message: String) : UiEvent()
+    data object SaveSuccess : UiEvent()
+}
 
 class MainViewModel : ViewModel() {
 
@@ -53,7 +66,7 @@ class MainViewModel : ViewModel() {
     private val _searchQuery = MutableStateFlow("")
     val searchQuery = _searchQuery.asStateFlow()
 
-    private val _collectionDateFilter = MutableStateFlow("Today")
+    private val _collectionDateFilter = MutableStateFlow("This Month")
     private val _customDateRange = MutableStateFlow<Pair<Long?, Long?>>(Pair(null, null))
 
     private val _isLoading = MutableStateFlow(false)
@@ -70,6 +83,8 @@ class MainViewModel : ViewModel() {
     private val _memberHistory = MutableStateFlow<List<MembershipHistory>>(emptyList())
     val memberHistory: StateFlow<List<MembershipHistory>> = _memberHistory.asStateFlow()
 
+    private val _uiEvents = MutableSharedFlow<UiEvent>()
+    val uiEvents: SharedFlow<UiEvent> = _uiEvents.asSharedFlow()
 
     private val userUidFlow = callbackFlow<String?> {
         val listener = FirebaseAuth.AuthStateListener { firebaseAuth ->
@@ -99,7 +114,25 @@ class MainViewModel : ViewModel() {
             if (query.isBlank()) {
                 members
             } else {
-                members.filter { it.name.contains(query, ignoreCase = true) || it.contact.contains(query, ignoreCase = true) }
+                members.filter {
+                    it.name.contains(query, ignoreCase = true) ||
+                            it.contact.contains(query, ignoreCase = true)
+                }
+            }
+        }
+        .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), emptyList())
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val allPayments: StateFlow<List<Payment>> = userUidFlow
+        .distinctUntilChanged()
+        .flatMapLatest { userId ->
+            if (userId == null) {
+                flowOf(emptyList())
+            } else {
+                firestore.collectionGroup("payments")
+                    .whereEqualTo("userId", userId)
+                    .snapshots()
+                    .map { snapshot -> snapshot.toObjects(Payment::class.java) }
             }
         }
         .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), emptyList())
@@ -142,10 +175,25 @@ class MainViewModel : ViewModel() {
         }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), emptyList())
 
     val todaysRevenue: StateFlow<Double> =
-        allMembers.map { members ->
+        allPayments.map { payments ->
             val todayStart = DateUtils.startOfDayMillis()
             val todayEnd = DateUtils.endOfDayMillis()
-            members.filter { (it.purchaseDate ?: 0L) in todayStart..todayEnd }.sumOf { it.finalAmount ?: 0.0 }
+            payments
+                .filter { (it.transactionDate?.time ?: 0L) in todayStart..todayEnd }
+                .sumOf { it.amount }
+        }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), 0.0)
+
+    val thisMonthsCollection: StateFlow<Double> =
+        allPayments.map { payments ->
+            val calendar = Calendar.getInstance()
+            calendar.set(Calendar.DAY_OF_MONTH, 1)
+            val startOfMonth = DateUtils.startOfDayMillis(calendar.timeInMillis)
+            calendar.set(Calendar.DAY_OF_MONTH, calendar.getActualMaximum(Calendar.DAY_OF_MONTH))
+            val endOfMonth = DateUtils.endOfDayMillis(calendar.timeInMillis)
+
+            payments
+                .filter { (it.transactionDate?.time ?: 0L) in startOfMonth..endOfMonth }
+                .sumOf { it.amount }
         }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), 0.0)
 
     val todaysRevenueMembers: StateFlow<List<Member>> =
@@ -174,13 +222,17 @@ class MainViewModel : ViewModel() {
         allMembers.map { members ->
             val groupAndSortFormat = SimpleDateFormat("yyyy-MM", Locale.getDefault())
             val displayFormat = SimpleDateFormat("MMM", Locale.getDefault())
-            val signupsByMonth = members.groupBy { member -> groupAndSortFormat.format(Date(member.startDate)) }
-            val last12Months = (0 downTo -11).map { monthOffset ->
+            val signupsByMonth = members
+                .filter { it.startDate > 0L }
+                .groupBy { member -> groupAndSortFormat.format(Date(member.startDate)) }
+
+            val last12Months = (11 downTo 0).map { monthOffset ->
                 val cal = Calendar.getInstance()
-                cal.add(Calendar.MONTH, monthOffset)
+                cal.add(Calendar.MONTH, -monthOffset)
                 groupAndSortFormat.format(cal.time)
             }
-            last12Months.reversed().map { monthKey ->
+
+            last12Months.map { monthKey ->
                 val date = groupAndSortFormat.parse(monthKey) ?: Date()
                 val count = signupsByMonth[monthKey]?.size?.toFloat() ?: 0f
                 MonthlySignupData(displayFormat.format(date), count)
@@ -189,7 +241,7 @@ class MainViewModel : ViewModel() {
 
     val planPopularity: StateFlow<List<PlanPopularityData>> =
         allMembers.map { members ->
-            members.groupBy { member -> member.plan.trim().removeSuffix("s").trim() }
+            members.groupBy { member -> member.plan.trim().removeSuffix("s").trim().ifBlank { "Unknown" } }
                 .map { (plan, memberList) -> PlanPopularityData(plan, memberList.size.toFloat()) }
                 .sortedByDescending { it.count }
         }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), emptyList())
@@ -245,58 +297,40 @@ class MainViewModel : ViewModel() {
         }
 
         if (startDate != null && endDate != null) {
-            // --- FIXED: Changed filter to use startDate instead of purchaseDate ---
             members.filter { it.startDate in startDate..endDate }
         } else {
             val todayStart = DateUtils.startOfDayMillis()
             val todayEnd = DateUtils.endOfDayMillis()
-            // --- FIXED: Changed filter to use startDate instead of purchaseDate ---
             members.filter { it.startDate in todayStart..todayEnd }
         }
     }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), emptyList())
 
     fun onSearchQueryChange(query: String) { _searchQuery.value = query }
 
-    fun addOrUpdateMember(member: Member, photoUri: Uri?, context: Context, isRenewal: Boolean) = viewModelScope.launch {
-        _isLoading.value = true
-        val userId = auth.currentUser?.uid ?: run {
-            _isLoading.value = false
-            _errorMessage.value = "Not signed in"
+    fun addOrUpdateMember(member: Member, photoUri: Uri?, context: Context, isRenewal: Boolean, amountReceived: Double) = viewModelScope.launch {
+        val userId = auth.currentUser?.uid
+        if (userId == null) {
+            _uiEvents.emit(UiEvent.ShowError("Not signed in"))
             return@launch
         }
-        var memberToSave = member.copy(userId = userId)
-        var memberId = member.idString
 
-        photoUri?.let { uri ->
-            val photoRef = storage.reference.child("images/$userId/${System.currentTimeMillis()}_photo.jpg")
-            try {
-                val compressedImageData = withContext(Dispatchers.IO) {
-                    context.contentResolver.openInputStream(uri)?.use { inputStream ->
-                        val bitmap = BitmapFactory.decodeStream(inputStream)
-                        if (bitmap == null) {
-                            Log.e("MainVM", "Failed to decode bitmap from URI: $uri")
-                            return@withContext null
-                        }
-                        val outputStream = ByteArrayOutputStream()
-                        bitmap.compress(Bitmap.CompressFormat.JPEG, 80, outputStream)
-                        outputStream.toByteArray()
-                    }
-                }
-
-                if (compressedImageData != null) {
-                    val downloadUrl = photoRef.putBytes(compressedImageData).await().storage.downloadUrl.await()
-                    memberToSave = memberToSave.copy(photoUri = downloadUrl.toString())
-                } else {
-                    Toast.makeText(context, "Could not process image.", Toast.LENGTH_SHORT).show()
-                }
-
-            } catch (e: Exception) {
-                Log.e("MainVM", "Photo upload/compression failed", e)
-                Toast.makeText(context, "Failed to upload photo: ${e.message}", Toast.LENGTH_SHORT).show()
-            }
-        }
-
+        _isLoading.value = true
         try {
+            var memberToSave = member.copy(userId = userId)
+            var memberId = member.idString
+
+            photoUri?.let { uri ->
+                try {
+                    val storagePath = "images/$userId/${System.currentTimeMillis()}_photo.jpg"
+                    val downloadUrl = compressAndUploadImage(context, uri, storagePath)
+                    memberToSave = memberToSave.copy(photoUri = downloadUrl)
+                } catch (e: Exception) {
+                    Log.e("MainVM", "Photo upload/compression failed", e)
+                    _uiEvents.emit(UiEvent.ShowError("Photo upload failed. Please try again."))
+                    return@launch
+                }
+            }
+
             if (memberId.isBlank()) {
                 val newMemberRef = firestore.collection("users").document(userId).collection("members").add(memberToSave).await()
                 memberId = newMemberRef.id
@@ -304,81 +338,130 @@ class MainViewModel : ViewModel() {
                 firestore.collection("users").document(userId).collection("members").document(memberId).set(memberToSave).await()
             }
 
+            if (amountReceived > 0) {
+                val paymentRecord = Payment(
+                    amount = amountReceived,
+                    memberName = memberToSave.name,
+                    type = "Membership",
+                    userId = userId
+                )
+                firestore.collection("users").document(userId)
+                    .collection("members").document(memberId)
+                    .collection("payments").add(paymentRecord).await()
+            }
+
             if (member.idString.isBlank() || isRenewal) {
                 val historyRecord = MembershipHistory(
                     plan = memberToSave.plan,
                     startDate = memberToSave.startDate,
                     expiryDate = memberToSave.expiryDate,
-                    finalAmount = memberToSave.finalAmount
+                    finalAmount = memberToSave.finalAmount,
+                    userId = userId
                 )
                 firestore.collection("users").document(userId)
                     .collection("members").document(memberId)
                     .collection("history").add(historyRecord).await()
             }
 
+            _uiEvents.emit(UiEvent.SaveSuccess)
         } catch (e: Exception) {
             Log.e("MainVM", "add/update member failed", e)
-            _errorMessage.value = "Save failed: ${e.message}"
+            _uiEvents.emit(UiEvent.ShowError("Save failed: ${e.message}"))
         } finally {
             _isLoading.value = false
         }
     }
 
     fun deleteMember(member: Member) = viewModelScope.launch {
+        val userId = auth.currentUser?.uid
+        if (userId == null) {
+            _uiEvents.emit(UiEvent.ShowError("Not signed in"))
+            return@launch
+        }
+
+        if (member.idString.isBlank()) {
+            _uiEvents.emit(UiEvent.ShowError("Invalid member id"))
+            return@launch
+        }
+
         _isLoading.value = true
-        val userId = auth.currentUser?.uid ?: return@launch
-        if (member.idString.isNotBlank()) {
-            try {
-                member.photoUri?.let { uri ->
-                    if (uri.isNotBlank()) {
-                        storage.getReferenceFromUrl(uri).delete().await()
-                    }
-                }
-                firestore.collection("users").document(userId).collection("members").document(member.idString).delete().await()
-            } catch (e: Exception) {
-                _errorMessage.value = "Delete failed: ${e.message}"
-                Log.e("MainVM", "Error deleting member or their photo", e)
-            } finally {
-                _isLoading.value = false
+        try {
+            val memberRef = firestore.collection("users").document(userId)
+                .collection("members").document(member.idString)
+
+            val paymentsSnap = memberRef.collection("payments").get().await()
+            if (!paymentsSnap.isEmpty) {
+                val paymentRefs = paymentsSnap.documents.map { it.reference }
+                chunkedBatchDelete(paymentRefs)
             }
+
+            val historySnap = memberRef.collection("history").get().await()
+            if (!historySnap.isEmpty) {
+                val historyRefs = historySnap.documents.map { it.reference }
+                chunkedBatchDelete(historyRefs)
+            }
+
+            member.photoUri?.takeIf { it.isNotBlank() }?.let { url ->
+                try {
+                    storage.getReferenceFromUrl(url).delete().await()
+                } catch (e: Exception) {
+                    Log.w("MainVM", "Failed to delete member photo: $url", e)
+                }
+            }
+
+            memberRef.delete().await()
+
+            _uiEvents.emit(UiEvent.ShowToast("Member and related data deleted"))
+        } catch (e: Exception) {
+            Log.e("MainVM", "Error deleting member and subcollections", e)
+            _uiEvents.emit(UiEvent.ShowError("Delete failed: ${e.message}"))
+        } finally {
+            _isLoading.value = false
         }
     }
 
     fun deleteAllMembers(context: Context) = viewModelScope.launch {
-        _isLoading.value = true
-        val userId = auth.currentUser?.uid ?: run {
-            Toast.makeText(context, "Not signed in", Toast.LENGTH_SHORT).show()
-            _isLoading.value = false
+        val userId = auth.currentUser?.uid
+        if (userId == null) {
+            _uiEvents.emit(UiEvent.ShowError("Not signed in"))
             return@launch
         }
 
+        _isLoading.value = true
         try {
-            val snapshot = firestore.collection("users").document(userId).collection("members").get().await()
-            if (snapshot.isEmpty) {
-                Toast.makeText(context, "No members to delete", Toast.LENGTH_SHORT).show()
+            val membersSnap = firestore.collection("users").document(userId).collection("members").get().await()
+            if (membersSnap.isEmpty) {
+                _uiEvents.emit(UiEvent.ShowToast("No members to delete"))
             } else {
-                _deleteTotal.value = snapshot.size()
+                val docs = membersSnap.documents
+                _deleteTotal.value = docs.size
                 _deleteProgress.value = 0
-                val batch = firestore.batch()
-                snapshot.documents.forEach { doc ->
-                    val member = doc.toObject(Member::class.java)
-                    member?.photoUri?.let { uri ->
-                        if (uri.isNotBlank()) {
+
+                val deleteJobs = docs.map { doc ->
+                    async {
+                        val m = doc.toObject(Member::class.java)
+                        m?.photoUri?.takeIf { it.isNotBlank() }?.let { url ->
                             try {
-                                storage.getReferenceFromUrl(uri).delete().await()
+                                storage.getReferenceFromUrl(url).delete().await()
                             } catch (e: Exception) {
-                                Log.w("MainVM", "Failed to delete photo for member ${member.name}", e)
+                                Log.w("MainVM", "Failed to delete photo for member ${m?.name}", e)
                             }
                         }
+                        deleteSubCollection(doc.reference.collection("history"))
+                        deleteSubCollection(doc.reference.collection("payments"))
+                        doc.reference.delete().await()
+
+                        withContext(Dispatchers.Main) {
+                            _deleteProgress.value++
+                        }
                     }
-                    batch.delete(doc.reference)
-                    _deleteProgress.value++
                 }
-                batch.commit().await()
-                Toast.makeText(context, "All members deleted", Toast.LENGTH_SHORT).show()
+                deleteJobs.awaitAll()
+                _uiEvents.emit(UiEvent.ShowToast("All members deleted"))
             }
         } catch (e: Exception) {
-            Toast.makeText(context, "Failed to delete all members: ${e.message}", Toast.LENGTH_LONG).show()
+            Log.e("MainVM", "Failed to delete all members and data", e)
+            _uiEvents.emit(UiEvent.ShowError("Failed to delete all members: ${e.message}"))
         } finally {
             _isLoading.value = false
             _deleteTotal.value = 0
@@ -387,27 +470,55 @@ class MainViewModel : ViewModel() {
     }
 
     fun updateDueAdvance(member: Member, amountPaid: Double) = viewModelScope.launch {
+        val userId = auth.currentUser?.uid
+        if (userId == null) {
+            _uiEvents.emit(UiEvent.ShowError("Not signed in"))
+            return@launch
+        }
+
         _isLoading.value = true
-        val userId = auth.currentUser?.uid ?: return@launch
-        if (member.idString.isNotBlank()) {
-            val newBalance = (member.dueAdvance ?: 0.0) + amountPaid
-            try {
-                firestore.collection("users").document(userId).collection("members").document(member.idString).update("dueAdvance", newBalance).await()
-            } catch (e: Exception) {
-                _errorMessage.value = "Update failed: ${e.message}"
-            } finally {
-                _isLoading.value = false
+        try {
+            if (member.idString.isNotBlank()) {
+                val newBalance = (member.dueAdvance ?: 0.0) + amountPaid
+                firestore.collection("users").document(userId).collection("members").document(member.idString)
+                    .update("dueAdvance", newBalance).await()
+
+                if (amountPaid > 0) {
+                    val paymentRecord = Payment(
+                        amount = amountPaid,
+                        memberName = member.name,
+                        type = "Due Clearance",
+                        userId = userId
+                    )
+                    firestore.collection("users").document(userId)
+                        .collection("members").document(member.idString)
+                        .collection("payments").add(paymentRecord).await()
+                }
+
+                _uiEvents.emit(UiEvent.ShowToast("Updated successfully"))
             }
+        } catch (e: Exception) {
+            _errorMessage.value = "Update failed: ${e.message}"
+            _uiEvents.emit(UiEvent.ShowError("Update failed: ${e.message}"))
+        } finally {
+            _isLoading.value = false
         }
     }
 
     fun savePlanPrice(plan: Plan) = viewModelScope.launch {
+        val userId = auth.currentUser?.uid
+        if (userId == null) {
+            _uiEvents.emit(UiEvent.ShowError("Not signed in"))
+            return@launch
+        }
+
         _isLoading.value = true
-        val userId = auth.currentUser?.uid ?: return@launch
         try {
             firestore.collection("users").document(userId).collection("plans").document(plan.planName).set(plan).await()
+            _uiEvents.emit(UiEvent.ShowToast("Plan saved"))
         } catch (e: Exception) {
             _errorMessage.value = "Save plan failed: ${e.message}"
+            _uiEvents.emit(UiEvent.ShowError("Save plan failed: ${e.message}"))
         } finally {
             _isLoading.value = false
         }
@@ -424,15 +535,22 @@ class MainViewModel : ViewModel() {
         _isLoading.value = true
         try {
             CsvUtils.writeMembersToCsv(context, uri, allMembers.value)
-            Toast.makeText(context, "Export completed: ${allMembers.value.size} members", Toast.LENGTH_SHORT).show()
+            _uiEvents.emit(UiEvent.ShowToast("Export completed: ${allMembers.value.size} members"))
         } catch (e: Exception) {
-            Toast.makeText(context, "Export failed: ${e.message}", Toast.LENGTH_LONG).show()
+            Log.e("MainVM", "Export failed", e)
+            _uiEvents.emit(UiEvent.ShowError("Export failed: ${e.message}"))
         } finally {
             _isLoading.value = false
         }
     }
 
     fun importMembersFromCsv(context: Context, uri: Uri) = viewModelScope.launch {
+        val userId = auth.currentUser?.uid
+        if (userId == null) {
+            _uiEvents.emit(UiEvent.ShowError("Not signed in"))
+            return@launch
+        }
+
         _isLoading.value = true
         Log.d("MainVM_Import", "Starting CSV import process.")
         try {
@@ -440,23 +558,16 @@ class MainViewModel : ViewModel() {
             Log.d("MainVM_Import", "Successfully read ${members.size} members from CSV file.")
 
             if (members.isEmpty()) {
-                Toast.makeText(context, "CSV file is empty or format is incorrect.", Toast.LENGTH_LONG).show()
+                _uiEvents.emit(UiEvent.ShowError("CSV file is empty or format is incorrect."))
                 _isLoading.value = false
                 return@launch
             }
 
-            var importedCount = 0
-            members.forEach { member ->
-                addOrUpdateMember(member, null, context, isRenewal = false)
-                importedCount++
-                Log.d("MainVM_Import", "Attempting to import member ${importedCount}/${members.size}: ${member.name}")
-            }
-            Log.d("MainVM_Import", "Finished loop for importing members.")
-            Toast.makeText(context, "Imported $importedCount members successfully!", Toast.LENGTH_LONG).show()
-
+            importMembersBatch(userId, members)
+            _uiEvents.emit(UiEvent.ShowToast("Imported ${members.size} members successfully!"))
         } catch (e: Exception) {
             Log.e("MainVM_Import", "CSV import failed during read or processing.", e)
-            Toast.makeText(context, "Import failed. Check Logcat for details using 'MainVM_Import' tag.", Toast.LENGTH_LONG).show()
+            _uiEvents.emit(UiEvent.ShowError("Import failed. Check logs."))
         } finally {
             _isLoading.value = false
             Log.d("MainVM_Import", "CSV import process finished.")
@@ -480,8 +591,203 @@ class MainViewModel : ViewModel() {
                 _memberHistory.value = snapshot.toObjects(MembershipHistory::class.java)
             } catch (e: Exception) {
                 Log.e("MainVM", "Failed to fetch member history", e)
-                _errorMessage.value = "Could not load history."
+                _uiEvents.emit(UiEvent.ShowError("Could not load history"))
             }
+        }
+    }
+
+    fun clearErrorMessage() {
+        _errorMessage.value = null
+    }
+
+    fun cleanUpOrphanedData() = viewModelScope.launch {
+        val userId = auth.currentUser?.uid
+        if (userId == null) {
+            _uiEvents.emit(UiEvent.ShowError("Not signed in"))
+            return@launch
+        }
+        _isLoading.value = true
+        try {
+            val membersSnapshot = firestore.collection("users").document(userId).collection("members").get().await()
+            val validMemberIds = membersSnapshot.documents.map { it.id }.toSet()
+
+            var orphanedCount = 0
+
+            val paymentsSnapshot = firestore.collectionGroup("payments").whereEqualTo("userId", userId).get().await()
+            val paymentsToDelete = paymentsSnapshot.documents.filter {
+                val memberId = it.reference.parent.parent?.id
+                memberId !in validMemberIds
+            }
+            if (paymentsToDelete.isNotEmpty()) {
+                val batch = firestore.batch()
+                paymentsToDelete.forEach { batch.delete(it.reference) }
+                batch.commit().await()
+                orphanedCount += paymentsToDelete.size
+            }
+
+            val historySnapshot = firestore.collectionGroup("history").whereEqualTo("userId", userId).get().await()
+            val historyToDelete = historySnapshot.documents.filter {
+                val memberId = it.reference.parent.parent?.id
+                memberId !in validMemberIds
+            }
+            if (historyToDelete.isNotEmpty()) {
+                val batch = firestore.batch()
+                historyToDelete.forEach { batch.delete(it.reference) }
+                batch.commit().await()
+                orphanedCount += historyToDelete.size
+            }
+
+            if (orphanedCount > 0) {
+                _uiEvents.emit(UiEvent.ShowToast("Cleaned up $orphanedCount old records."))
+            } else {
+                _uiEvents.emit(UiEvent.ShowToast("No old data found to clean up."))
+            }
+
+        } catch (e: Exception) {
+            Log.e("MainVM", "Failed to clean up orphaned data", e)
+            _uiEvents.emit(UiEvent.ShowError("Cleanup failed: ${e.message}"))
+        } finally {
+            _isLoading.value = false
+        }
+    }
+
+    // --- ADDED: New function to migrate legacy payment data ---
+    fun migrateLegacyPayments() = viewModelScope.launch {
+        val userId = auth.currentUser?.uid
+        if (userId == null) {
+            _uiEvents.emit(UiEvent.ShowError("Not signed in"))
+            return@launch
+        }
+        _isLoading.value = true
+        try {
+            val membersSnapshot = firestore.collection("users").document(userId).collection("members").get().await()
+            val membersToMigrate = membersSnapshot.documents.mapNotNull { doc ->
+                val member = doc.toObject(Member::class.java)?.copy(idString = doc.id)
+                // Filter for members with a start date in 2025
+                val calendar = Calendar.getInstance().apply { timeInMillis = member?.startDate ?: 0L }
+                if (member != null && calendar.get(Calendar.YEAR) == 2025) {
+                    member
+                } else {
+                    null
+                }
+            }
+
+            if (membersToMigrate.isEmpty()) {
+                _uiEvents.emit(UiEvent.ShowToast("No relevant member data to migrate."))
+                return@launch
+            }
+
+            var migratedCount = 0
+            val batch = firestore.batch()
+            for (member in membersToMigrate) {
+                // Check if this member already has payment records to avoid duplicates
+                val paymentsExist = member.idString.let {
+                    firestore.collection("users").document(userId).collection("members").document(it)
+                        .collection("payments").limit(1).get().await().isEmpty.not()
+                }
+
+                if (!paymentsExist && (member.finalAmount ?: 0.0) > 0) {
+                    val transactionDate = if ((member.purchaseDate ?: 0L) > 0L) Date(member.purchaseDate!!) else Date(member.startDate)
+                    val paymentRecord = Payment(
+                        amount = member.finalAmount ?: 0.0,
+                        memberName = member.name,
+                        type = "Membership (Migrated)",
+                        userId = userId,
+                        transactionDate = transactionDate
+                    )
+                    val paymentRef = firestore.collection("users").document(userId)
+                        .collection("members").document(member.idString)
+                        .collection("payments").document()
+
+                    batch.set(paymentRef, paymentRecord)
+                    migratedCount++
+                }
+            }
+
+            if (migratedCount > 0) {
+                batch.commit().await()
+                _uiEvents.emit(UiEvent.ShowToast("Successfully migrated $migratedCount payment records."))
+            } else {
+                _uiEvents.emit(UiEvent.ShowToast("All payment records are already up to date."))
+            }
+
+        } catch (e: Exception) {
+            Log.e("MainVM", "Failed to migrate legacy payments", e)
+            _uiEvents.emit(UiEvent.ShowError("Migration failed: ${e.message}"))
+        } finally {
+            _isLoading.value = false
+        }
+    }
+
+    /* ---------------------- Helpers ---------------------- */
+
+    private suspend fun compressAndUploadImage(
+        context: Context,
+        uri: Uri,
+        storagePath: String
+    ): String = withContext(Dispatchers.IO) {
+        val resolver = context.contentResolver
+        val compressedBytes = resolver.openInputStream(uri)?.use { inputStream ->
+            val originalBitmap = BitmapFactory.decodeStream(inputStream)
+                ?: throw Exception("Failed to decode bitmap from URI: $uri")
+
+            val exif = resolver.openInputStream(uri)?.use { ExifInterface(it) }
+            val orientation = exif?.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL) ?: ExifInterface.ORIENTATION_NORMAL
+            val rotatedBitmap = applyExifTransform(originalBitmap, orientation)
+
+            val outputStream = ByteArrayOutputStream()
+            rotatedBitmap.compress(Bitmap.CompressFormat.JPEG, 80, outputStream)
+            if (rotatedBitmap != originalBitmap) rotatedBitmap.recycle()
+            originalBitmap.recycle()
+            outputStream.toByteArray()
+        } ?: throw Exception("Unable to open image stream")
+
+        val ref = storage.reference.child(storagePath)
+        val uploadResult = ref.putBytes(compressedBytes).await()
+        return@withContext uploadResult.storage.downloadUrl.await().toString()
+    }
+
+    private fun applyExifTransform(bitmap: Bitmap, orientation: Int): Bitmap {
+        val matrix = Matrix()
+        when (orientation) {
+            ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)
+            ExifInterface.ORIENTATION_ROTATE_180 -> matrix.postRotate(180f)
+            ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
+            ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> matrix.preScale(-1f, 1f)
+            ExifInterface.ORIENTATION_FLIP_VERTICAL -> matrix.preScale(1f, -1f)
+            ExifInterface.ORIENTATION_TRANSPOSE -> { matrix.postRotate(90f); matrix.preScale(-1f, 1f) }
+            ExifInterface.ORIENTATION_TRANSVERSE -> { matrix.postRotate(-90f); matrix.preScale(-1f, 1f) }
+        }
+        return if (matrix.isIdentity) bitmap else Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+    }
+
+    private suspend fun chunkedBatchDelete(docRefs: List<DocumentReference>) {
+        docRefs.chunked(500).forEach { chunk ->
+            val batch = firestore.batch()
+            chunk.forEach { batch.delete(it) }
+            batch.commit().await()
+        }
+    }
+
+    private suspend fun deleteSubCollection(collection: com.google.firebase.firestore.CollectionReference) {
+        val snapshot = collection.limit(500).get().await()
+        if (snapshot.isEmpty) return
+        val batch = firestore.batch()
+        snapshot.documents.forEach { batch.delete(it.reference) }
+        batch.commit().await()
+        if (snapshot.size() == 500) {
+            deleteSubCollection(collection)
+        }
+    }
+
+    private suspend fun importMembersBatch(userId: String, members: List<Member>) = withContext(Dispatchers.IO) {
+        members.chunked(500).forEach { chunk ->
+            val batch = firestore.batch()
+            chunk.forEach { m ->
+                val docRef = if (m.idString.isBlank()) firestore.collection("users").document(userId).collection("members").document() else firestore.collection("users").document(userId).collection("members").document(m.idString)
+                batch.set(docRef, m)
+            }
+            batch.commit().await()
         }
     }
 }

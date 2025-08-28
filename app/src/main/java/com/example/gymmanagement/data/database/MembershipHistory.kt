@@ -16,8 +16,10 @@ data class MembershipHistory(
     // Payment details for this transaction
     val finalAmount: Double? = null,
 
+    // --- ADDED: Field to link the history record to a specific user ---
+    val userId: String = "",
+
     // The date this history record was created.
-    // @ServerTimestamp tells Firestore to automatically set this value on the server.
     @ServerTimestamp
     val transactionDate: Date? = null
 )

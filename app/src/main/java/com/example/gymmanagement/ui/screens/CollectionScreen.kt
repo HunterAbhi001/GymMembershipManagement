@@ -48,6 +48,11 @@ fun CollectionScreen(
 
     val totalCollection = filteredMembers.sumOf { it.finalAmount ?: 0.0 }
 
+    // --- ADDED: Apply the default filter when the screen first opens ---
+    LaunchedEffect(Unit) {
+        onDateFilterChange("This Month", null, null)
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -143,7 +148,8 @@ fun CollectionScreen(
 private fun CollectionFilterSheetContent(
     onApply: (String, Long?, Long?) -> Unit
 ) {
-    var selectedFilter by remember { mutableStateOf("Today") }
+    // --- UPDATED: Changed the default selected filter to "This Month" ---
+    var selectedFilter by remember { mutableStateOf("This Month") }
     var customStartDate by remember { mutableStateOf<Long?>(null) }
     var customEndDate by remember { mutableStateOf<Long?>(null) }
 

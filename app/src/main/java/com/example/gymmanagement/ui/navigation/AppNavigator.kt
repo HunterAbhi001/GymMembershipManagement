@@ -29,7 +29,8 @@ fun AppNavigator(
             val membersExpiringSoon by viewModel.membersExpiringSoon.collectAsState()
             val expiredMembers by viewModel.expiredMembers.collectAsState()
             val todaysRevenue by viewModel.todaysRevenue.collectAsState()
-            val totalBalance by viewModel.totalBalance.collectAsState()
+            // --- UPDATED: Fetch this month's collection instead of the overall total ---
+            val thisMonthsCollection by viewModel.thisMonthsCollection.collectAsState()
             val totalDues by viewModel.totalDues.collectAsState()
 
             DisposableEffect(Unit) {
@@ -43,7 +44,8 @@ fun AppNavigator(
                 expiredMembers = expiredMembers,
                 onDeleteMember = { member -> viewModel.deleteMember(member) },
                 todaysRevenue = todaysRevenue,
-                totalBalance = totalBalance,
+                // --- UPDATED: Pass the new monthly collection value ---
+                totalBalance = thisMonthsCollection,
                 totalDues = totalDues,
                 isDarkTheme = isDarkTheme,
                 onThemeToggle = onThemeToggle
@@ -55,7 +57,8 @@ fun AppNavigator(
             SettingsScreen(
                 navController = navController,
                 plans = allPlans,
-                onSavePlan = { plan -> viewModel.savePlanPrice(plan) }
+                onSavePlan = { plan -> viewModel.savePlanPrice(plan) },
+                viewModel = viewModel
             )
         }
 
@@ -194,9 +197,7 @@ fun AppNavigator(
             AddEditMemberScreen(
                 navController = navController,
                 member = member,
-                onSave = { memberToSave, photoUri ->
-                    viewModel.addOrUpdateMember(memberToSave, photoUri, context, isRenewal)
-                },
+                viewModel = viewModel,
                 isRenewal = isRenewal,
                 plans = allPlans,
                 isDarkTheme = isDarkTheme
