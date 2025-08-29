@@ -18,9 +18,9 @@ import com.example.gymmanagement.ui.screens.MonthlySignupData
 import com.example.gymmanagement.ui.screens.PlanPopularityData
 import com.example.gymmanagement.ui.utils.CsvUtils
 import com.example.gymmanagement.ui.utils.DateUtils
+import com.example.gymmanagement.ui.screens.UiTransaction
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.DocumentReference
-import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.ktx.firestore
 import com.google.firebase.firestore.ktx.snapshots
 import com.google.firebase.ktx.Firebase
@@ -54,7 +54,7 @@ import java.util.concurrent.TimeUnit
 sealed class UiEvent {
     data class ShowToast(val message: String) : UiEvent()
     data class ShowError(val message: String) : UiEvent()
-    data object SaveSuccess : UiEvent()
+    data class SaveSuccess(val member: Member, val shouldSendMessage: Boolean) : UiEvent()
 }
 
 class MainViewModel : ViewModel() {
@@ -196,17 +196,28 @@ class MainViewModel : ViewModel() {
                 .sumOf { it.amount }
         }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), 0.0)
 
-    val todaysRevenueMembers: StateFlow<List<Member>> =
-        allMembers.map { members ->
+    val todaysTransactions: StateFlow<List<Payment>> =
+        allPayments.map { payments ->
             val todayStart = DateUtils.startOfDayMillis()
             val todayEnd = DateUtils.endOfDayMillis()
-            members.filter { (it.purchaseDate ?: 0L) in todayStart..todayEnd }
+            payments
+                .filter { (it.transactionDate?.time ?: 0L) in todayStart..todayEnd }
+                .sortedByDescending { it.transactionDate }
         }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val totalBalance: StateFlow<Double> =
-        allMembers.map { members -> members.sumOf { it.finalAmount ?: 0.0 } }
-            .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), 0.0)
+    val todaysTransactionsWithDetails: StateFlow<List<UiTransaction>> =
+        combine(todaysTransactions, allMembers) { transactions, members ->
+            // Create a quick lookup map of memberId to photoUri
+            val memberPhotoMap = members.associateBy({ it.idString }, { it.photoUri })
 
+            // Map each transaction to our new UI-specific data class
+            transactions.map { payment ->
+                UiTransaction(
+                    paymentDetails = payment,
+                    memberPhotoUri = memberPhotoMap[payment.memberId] // Find the photoUri using the memberId
+                )
+            }
+        }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), emptyList())
     val membersWithDues: StateFlow<List<Member>> =
         allMembers.map { members -> members.filter { (it.dueAdvance ?: 0.0) < 0.0 } }
             .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), emptyList())
@@ -246,7 +257,7 @@ class MainViewModel : ViewModel() {
                 .sortedByDescending { it.count }
         }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val filteredCollection: StateFlow<List<Member>> = combine(allMembers, _collectionDateFilter, _customDateRange) { members, filter, customRange ->
+    val filteredTransactions: StateFlow<List<Payment>> = combine(allPayments, _collectionDateFilter, _customDateRange) { payments, filter, customRange ->
         val tz = TimeZone.getDefault()
         val calendar = Calendar.getInstance(tz)
 
@@ -297,14 +308,25 @@ class MainViewModel : ViewModel() {
         }
 
         if (startDate != null && endDate != null) {
-            members.filter { it.startDate in startDate..endDate }
+            payments.filter { (it.transactionDate?.time ?: 0L) in startDate..endDate }
         } else {
             val todayStart = DateUtils.startOfDayMillis()
             val todayEnd = DateUtils.endOfDayMillis()
-            members.filter { it.startDate in todayStart..todayEnd }
+            payments.filter { (it.transactionDate?.time ?: 0L) in todayStart..todayEnd }
         }
     }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val filteredTransactionsWithDetails: StateFlow<List<UiTransaction>> =
+        combine(filteredTransactions, allMembers) { transactions, members ->
+            val memberPhotoMap = members.associateBy({ it.idString }, { it.photoUri })
+
+            transactions.map { payment ->
+                UiTransaction(
+                    paymentDetails = payment,
+                    memberPhotoUri = memberPhotoMap[payment.memberId]
+                )
+            }
+        }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), emptyList())
     fun onSearchQueryChange(query: String) { _searchQuery.value = query }
 
     fun addOrUpdateMember(member: Member, photoUri: Uri?, context: Context, isRenewal: Boolean, amountReceived: Double) = viewModelScope.launch {
@@ -320,15 +342,21 @@ class MainViewModel : ViewModel() {
             var memberId = member.idString
 
             photoUri?.let { uri ->
-                try {
-                    val storagePath = "images/$userId/${System.currentTimeMillis()}_photo.jpg"
-                    val downloadUrl = compressAndUploadImage(context, uri, storagePath)
-                    memberToSave = memberToSave.copy(photoUri = downloadUrl)
-                } catch (e: Exception) {
-                    Log.e("MainVM", "Photo upload/compression failed", e)
-                    _uiEvents.emit(UiEvent.ShowError("Photo upload failed. Please try again."))
-                    return@launch
+                // --- THIS IS THE FIX ---
+                // Only upload if the URI is a new local file from the gallery or camera.
+                // Existing photos are https:// URLs and should not be re-uploaded.
+                if (uri.scheme == "content" || uri.scheme == "file") {
+                    try {
+                        val storagePath = "images/$userId/${System.currentTimeMillis()}_photo.jpg"
+                        val downloadUrl = compressAndUploadImage(context, uri, storagePath)
+                        memberToSave = memberToSave.copy(photoUri = downloadUrl)
+                    } catch (e: Exception) {
+                        Log.e("MainVM", "Photo upload/compression failed", e)
+                        _uiEvents.emit(UiEvent.ShowError("Photo upload failed. Please try again."))
+                        return@launch
+                    }
                 }
+                // If the scheme is 'https', we do nothing and the existing URL in 'memberToSave' is preserved.
             }
 
             if (memberId.isBlank()) {
@@ -338,12 +366,14 @@ class MainViewModel : ViewModel() {
                 firestore.collection("users").document(userId).collection("members").document(memberId).set(memberToSave).await()
             }
 
-            if (amountReceived > 0) {
+            val isNewMember = member.idString.isBlank()
+            if (amountReceived > 0 && (isNewMember || isRenewal)) {
                 val paymentRecord = Payment(
                     amount = amountReceived,
                     memberName = memberToSave.name,
-                    type = "Membership",
-                    userId = userId
+                    type = if (isRenewal) "Renewal" else "Membership",
+                    userId = userId,
+                    memberId = memberId
                 )
                 firestore.collection("users").document(userId)
                     .collection("members").document(memberId)
@@ -363,7 +393,10 @@ class MainViewModel : ViewModel() {
                     .collection("history").add(historyRecord).await()
             }
 
-            _uiEvents.emit(UiEvent.SaveSuccess)
+            val shouldSendMessage = member.idString.isBlank() || isRenewal
+            val finalMember = memberToSave.copy(idString = memberId)
+            _uiEvents.emit(UiEvent.SaveSuccess(finalMember, shouldSendMessage))
+
         } catch (e: Exception) {
             Log.e("MainVM", "add/update member failed", e)
             _uiEvents.emit(UiEvent.ShowError("Save failed: ${e.message}"))
@@ -488,7 +521,8 @@ class MainViewModel : ViewModel() {
                         amount = amountPaid,
                         memberName = member.name,
                         type = "Due Clearance",
-                        userId = userId
+                        userId = userId,
+                        memberId = member.idString // --- FIXED: Save the memberId with the payment ---
                     )
                     firestore.collection("users").document(userId)
                         .collection("members").document(member.idString)
@@ -521,6 +555,61 @@ class MainViewModel : ViewModel() {
             _uiEvents.emit(UiEvent.ShowError("Save plan failed: ${e.message}"))
         } finally {
             _isLoading.value = false
+        }
+    }
+
+    // Add this StateFlow to hold the payments for a single member
+    private val _memberPayments = MutableStateFlow<List<Payment>>(emptyList())
+    val memberPayments: StateFlow<List<Payment>> = _memberPayments.asStateFlow()
+
+    fun fetchPaymentsForMember(memberId: String) {
+        viewModelScope.launch {
+            val userId = auth.currentUser?.uid ?: return@launch
+            if (memberId.isBlank()) {
+                _memberPayments.value = emptyList()
+                return@launch
+            }
+            try {
+                // Listen for real-time updates
+                firestore.collection("users").document(userId)
+                    .collection("members").document(memberId)
+                    .collection("payments")
+                    .orderBy("transactionDate", com.google.firebase.firestore.Query.Direction.DESCENDING)
+                    .snapshots() // Use snapshots() to get real-time updates
+                    .collect { snapshot ->
+                        _memberPayments.value = snapshot.documents.mapNotNull { doc ->
+                            doc.toObject(Payment::class.java)?.copy(paymentId = doc.id)
+                        }
+                    }
+            } catch (e: Exception) {
+                Log.e("MainVM", "Failed to fetch member payments", e)
+                _uiEvents.emit(UiEvent.ShowError("Could not load payments"))
+            }
+        }
+    }
+
+    fun deletePayment(paymentId: String, memberId: String) {
+        viewModelScope.launch {
+            val userId = auth.currentUser?.uid
+            if (userId == null || paymentId.isBlank() || memberId.isBlank()) {
+                _uiEvents.emit(UiEvent.ShowError("Invalid data for deletion."))
+                return@launch
+            }
+
+            _isLoading.value = true
+            try {
+                firestore.collection("users").document(userId)
+                    .collection("members").document(memberId)
+                    .collection("payments").document(paymentId)
+                    .delete()
+                    .await()
+                _uiEvents.emit(UiEvent.ShowToast("Payment deleted successfully"))
+            } catch (e: Exception) {
+                Log.e("MainVM", "Error deleting payment", e)
+                _uiEvents.emit(UiEvent.ShowError("Delete failed: ${e.message}"))
+            } finally {
+                _isLoading.value = false
+            }
         }
     }
 
@@ -651,7 +740,6 @@ class MainViewModel : ViewModel() {
         }
     }
 
-    // --- ADDED: New function to migrate legacy payment data ---
     fun migrateLegacyPayments() = viewModelScope.launch {
         val userId = auth.currentUser?.uid
         if (userId == null) {
@@ -661,11 +749,13 @@ class MainViewModel : ViewModel() {
         _isLoading.value = true
         try {
             val membersSnapshot = firestore.collection("users").document(userId).collection("members").get().await()
+            val calendar2025 = Calendar.getInstance().apply { set(Calendar.YEAR, 2025) }
+            val year2025 = calendar2025.get(Calendar.YEAR)
+
             val membersToMigrate = membersSnapshot.documents.mapNotNull { doc ->
                 val member = doc.toObject(Member::class.java)?.copy(idString = doc.id)
-                // Filter for members with a start date in 2025
-                val calendar = Calendar.getInstance().apply { timeInMillis = member?.startDate ?: 0L }
-                if (member != null && calendar.get(Calendar.YEAR) == 2025) {
+                val memberCalendar = Calendar.getInstance().apply { timeInMillis = member?.startDate ?: 0L }
+                if (member != null && memberCalendar.get(Calendar.YEAR) == year2025) {
                     member
                 } else {
                     null
@@ -673,27 +763,32 @@ class MainViewModel : ViewModel() {
             }
 
             if (membersToMigrate.isEmpty()) {
-                _uiEvents.emit(UiEvent.ShowToast("No relevant member data to migrate."))
+                _uiEvents.emit(UiEvent.ShowToast("No relevant member data from 2025 to migrate."))
                 return@launch
             }
 
             var migratedCount = 0
             val batch = firestore.batch()
             for (member in membersToMigrate) {
-                // Check if this member already has payment records to avoid duplicates
                 val paymentsExist = member.idString.let {
                     firestore.collection("users").document(userId).collection("members").document(it)
                         .collection("payments").limit(1).get().await().isEmpty.not()
                 }
 
                 if (!paymentsExist && (member.finalAmount ?: 0.0) > 0) {
-                    val transactionDate = if ((member.purchaseDate ?: 0L) > 0L) Date(member.purchaseDate!!) else Date(member.startDate)
+                    val transactionDate = if ((member.purchaseDate ?: 0L) > 0L && Calendar.getInstance().apply { timeInMillis = member.purchaseDate!! }.get(Calendar.YEAR) != 1970) {
+                        Date(member.purchaseDate!!)
+                    } else {
+                        Date(member.startDate)
+                    }
+
                     val paymentRecord = Payment(
                         amount = member.finalAmount ?: 0.0,
                         memberName = member.name,
                         type = "Membership (Migrated)",
                         userId = userId,
-                        transactionDate = transactionDate
+                        transactionDate = transactionDate,
+                        memberId = member.idString
                     )
                     val paymentRef = firestore.collection("users").document(userId)
                         .collection("members").document(member.idString)

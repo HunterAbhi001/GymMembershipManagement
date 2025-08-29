@@ -11,11 +11,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.example.gymmanagement.data.database.Member
-import com.example.gymmanagement.ui.common.MemberListItem // Assuming you have a common list item
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -73,15 +71,18 @@ fun SearchScreen(
 
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(horizontal = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 items(searchedMembers) { member ->
-                    // You can reuse your existing MemberListItem or a similar composable
+                    // --- UPDATED: Using our final, reusable MemberListItem ---
                     MemberListItem(
                         member = member,
-                        onClick = { navController.navigate("member_details/${member.idString}") }
-                        // Add other actions if needed
+                        onClick = { navController.navigate("member_details/${member.idString}") },
+                        trailingContent = {
+                            // Displaying the member's status is most useful here
+                            ExpiryStatusText(member = member)
+                        }
                     )
                 }
             }

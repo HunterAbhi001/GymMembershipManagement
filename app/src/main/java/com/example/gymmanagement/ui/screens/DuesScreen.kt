@@ -154,10 +154,21 @@ fun DuesScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 items(membersWithDues) { member ->
-                    ModernDuesListItem(
+                    MemberListItem(
                         member = member,
-                        onPayClick = { memberToPay = member },
-                        onClick = { navController.navigate("member_details/${member.idString}") }
+                        onClick = { navController.navigate("member_details/${member.idString}") },
+                        trailingContent = {
+                            Text(
+                                text = "Due: ${formatCurrency(abs(member.dueAdvance ?: 0.0))}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Button(onClick = { memberToPay = member }) {
+                                Text("Pay")
+                            }
+                        }
                     )
                 }
             }
@@ -192,52 +203,7 @@ fun SummaryCard(title: String, amount: Double, color: Color, modifier: Modifier 
     }
 }
 
-@Composable
-fun ModernDuesListItem(
-    member: Member,
-    onPayClick: () -> Unit,
-    onClick: () -> Unit
-) {
-    val amount = member.dueAdvance ?: 0.0
-
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick),
-        shape = RoundedCornerShape(16.dp),
-        elevation = CardDefaults.cardElevation(2.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-    ) {
-        Row(
-            modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            Image(
-                painter = rememberAsyncImagePainter(
-                    model = member.photoUri,
-                    error = painterResource(id = R.drawable.ic_person_placeholder)
-                ),
-                contentDescription = "Member Photo",
-                modifier = Modifier
-                    .size(48.dp)
-                    .clip(CircleShape)
-            )
-
-            Column(modifier = Modifier.weight(1f)) {
-                Text(member.name, fontWeight = FontWeight.Bold)
-                Text(
-                    text = "Amount Due: ${formatCurrency(abs(amount))}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = RedAccent
-                )
-            }
-            Button(onClick = onPayClick) {
-                Text("Pay")
-            }
-        }
-    }
-}
+// --- REMOVED: The old ModernDuesListItem is no longer needed ---
 
 @Composable
 private fun PaymentDialog(
@@ -283,7 +249,6 @@ private fun PaymentDialog(
     )
 }
 
-// --- ADDED: Composable for the guided reminder flow ---
 @Composable
 private fun ReminderDialog(
     member: Member,

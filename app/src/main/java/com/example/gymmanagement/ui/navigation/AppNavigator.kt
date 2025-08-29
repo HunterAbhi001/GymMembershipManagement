@@ -29,7 +29,6 @@ fun AppNavigator(
             val membersExpiringSoon by viewModel.membersExpiringSoon.collectAsState()
             val expiredMembers by viewModel.expiredMembers.collectAsState()
             val todaysRevenue by viewModel.todaysRevenue.collectAsState()
-            // --- UPDATED: Fetch this month's collection instead of the overall total ---
             val thisMonthsCollection by viewModel.thisMonthsCollection.collectAsState()
             val totalDues by viewModel.totalDues.collectAsState()
 
@@ -44,8 +43,7 @@ fun AppNavigator(
                 expiredMembers = expiredMembers,
                 onDeleteMember = { member -> viewModel.deleteMember(member) },
                 todaysRevenue = todaysRevenue,
-                // --- UPDATED: Pass the new monthly collection value ---
-                totalBalance = thisMonthsCollection,
+                thisMonthsCollection = thisMonthsCollection,
                 totalDues = totalDues,
                 isDarkTheme = isDarkTheme,
                 onThemeToggle = onThemeToggle
@@ -63,10 +61,11 @@ fun AppNavigator(
         }
 
         composable("todays_revenue") {
-            val todaysMembers by viewModel.todaysRevenueMembers.collectAsState()
+            // --- FIXED: Use the correct transaction data ---
+            val todaysTransactionsWithDetails by viewModel.todaysTransactionsWithDetails.collectAsState()
             TodaysRevenueScreen(
                 navController = navController,
-                todaysMembers = todaysMembers
+                todaysTransactions = todaysTransactionsWithDetails
             )
         }
 
@@ -80,10 +79,11 @@ fun AppNavigator(
         }
 
         composable("collections") {
-            val filteredMembers by viewModel.filteredCollection.collectAsState()
+            // --- FIXED: Use the correct transaction data ---
+            val filteredTransactionsWithDetails by viewModel.filteredTransactionsWithDetails.collectAsState()
             CollectionScreen(
                 navController = navController,
-                filteredMembers = filteredMembers,
+                filteredTransactions = filteredTransactionsWithDetails,
                 onDateFilterChange = { filter, start, end -> viewModel.onCollectionDateFilterChange(filter, start, end) }
             )
         }

@@ -35,6 +35,8 @@ import coil.compose.rememberAsyncImagePainter
 import com.example.gymmanagement.R
 import com.example.gymmanagement.data.database.Member
 import com.example.gymmanagement.data.database.MembershipHistory
+// --- ADDED: Import for the Payment data class ---
+import com.example.gymmanagement.data.database.Payment
 import com.example.gymmanagement.ui.icons.MessagesIcon
 import com.example.gymmanagement.ui.icons.WhatsAppIcon
 import com.example.gymmanagement.ui.theme.RedAccent
@@ -58,9 +60,16 @@ fun MemberDetailScreen(
     var showDeleteConfirm by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
+    // --- ADDED: State for payments list and the delete confirmation dialog ---
+    val payments by viewModel.memberPayments.collectAsState()
+    var paymentToDelete by remember { mutableStateOf<Payment?>(null) }
+
+
     LaunchedEffect(member) {
         if (member != null) {
             viewModel.fetchMemberHistory(member.idString)
+            // --- ADDED: Fetch the payment transaction history as well ---
+            viewModel.fetchPaymentsForMember(member.idString)
         }
     }
     val history by viewModel.memberHistory.collectAsState()
@@ -90,6 +99,32 @@ fun MemberDetailScreen(
             }
         )
     }
+
+    // --- ADDED: New dialog to confirm payment deletion ---
+    if (paymentToDelete != null && member != null) {
+        AlertDialog(
+            onDismissRequest = { paymentToDelete = null },
+            title = { Text("Confirm Deletion") },
+            text = { Text("Are you sure you want to delete this payment of ${formatCurrency(paymentToDelete!!.amount)}?") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.deletePayment(paymentToDelete!!.paymentId, member.idString)
+                        paymentToDelete = null // Close the dialog
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = RedAccent)
+                ) {
+                    Text("Delete")
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { paymentToDelete = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
 
     Scaffold(
         topBar = {
@@ -140,6 +175,12 @@ fun MemberDetailScreen(
                 }
                 item {
                     MembershipHistoryCard(history = history)
+                }
+                // --- ADDED: New item for the payment history card ---
+                item {
+                    PaymentHistoryCard(payments = payments, onDeleteClick = { payment ->
+                        paymentToDelete = payment
+                    })
                 }
             }
         }
@@ -288,6 +329,73 @@ private fun MembershipHistoryCard(history: List<MembershipHistory>) {
         }
     }
 }
+
+// --- ADDED: New Composable for the interactive Payment History Card ---
+@Composable
+private fun PaymentHistoryCard(
+    payments: List<Payment>,
+    onDeleteClick: (Payment) -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        elevation = CardDefaults.cardElevation(2.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text("Payment History", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(16.dp))
+            if (payments.isEmpty()) {
+                Text("No payment records found.", color = Color.Gray)
+            } else {
+                payments.forEach { payment ->
+                    PaymentListItem(payment = payment, onDeleteClick = { onDeleteClick(payment) })
+                    if (payment != payments.last()) {
+                        Divider(modifier = Modifier.padding(vertical = 8.dp))
+                    }
+                }
+            }
+        }
+    }
+}
+
+// --- ADDED: New Composable for each item in the Payment History list ---
+@Composable
+private fun PaymentListItem(
+    payment: Payment,
+    onDeleteClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = Icons.Default.MonetizationOn,
+            contentDescription = "Payment Entry",
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(24.dp)
+        )
+        Spacer(modifier = Modifier.width(16.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(text = "Type: ${payment.type}", fontWeight = FontWeight.SemiBold)
+            Text(
+                text = payment.transactionDate?.time?.toDateString() ?: "N/A",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        Text(
+            text = formatCurrency(payment.amount),
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(end = 8.dp)
+        )
+        IconButton(onClick = onDeleteClick) {
+            Icon(Icons.Default.DeleteOutline, "Delete Payment", tint = RedAccent)
+        }
+    }
+}
+
 
 @Composable
 private fun HistoryListItem(record: MembershipHistory) {

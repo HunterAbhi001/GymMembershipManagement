@@ -1,31 +1,16 @@
 package com.example.gymmanagement.ui.screens
 
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
-import coil.compose.rememberAsyncImagePainter
-import com.example.gymmanagement.R
 import com.example.gymmanagement.data.database.Member
-import com.example.gymmanagement.ui.theme.RedAccent
-import com.example.gymmanagement.ui.utils.DateUtils.toDateString
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -74,82 +59,22 @@ fun ExpiredMembersListScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 items(filteredMembers) { member ->
-                    ModernExpiredMemberListItem(
+                    // --- UPDATED: Using our reusable MemberListItem ---
+                    MemberListItem(
                         member = member,
-                        onClick = { navController.navigate("member_details/${member.idString}") }
+                        onClick = { navController.navigate("member_details/${member.idString}") },
+                        trailingContent = {
+                            Text(
+                                text = member.plan,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            // Our smart helper automatically shows the correct "Expired on..." text and color
+                            ExpiryStatusText(member = member)
+                        }
                     )
                 }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ModernExpiredMemberListItem(
-    member: Member,
-    onClick: () -> Unit
-) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick),
-        shape = RoundedCornerShape(16.dp),
-        elevation = CardDefaults.cardElevation(4.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-    ) {
-        Row(
-            modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            Image(
-                painter = rememberAsyncImagePainter(
-                    model = member.photoUri,
-                    error = painterResource(id = R.drawable.ic_person_placeholder)
-                ),
-                contentDescription = "Member Photo",
-                modifier = Modifier
-                    .size(56.dp)
-                    .clip(CircleShape),
-                contentScale = ContentScale.Crop
-            )
-
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = member.name,
-                    fontWeight = FontWeight.Bold,
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = member.contact,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-
-            Column(horizontalAlignment = Alignment.End) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(8.dp)
-                            .background(RedAccent, CircleShape)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = "Expired",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = RedAccent,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "Expired on ${member.expiryDate.toDateString()}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
             }
         }
     }

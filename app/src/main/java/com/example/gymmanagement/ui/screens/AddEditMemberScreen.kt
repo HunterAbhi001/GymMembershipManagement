@@ -18,6 +18,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -75,6 +76,7 @@ fun AddEditMemberScreen(
     // Date/time fields
     var startDate by remember { mutableStateOf(System.currentTimeMillis()) }
     var expiryDate by remember { mutableStateOf(System.currentTimeMillis()) }
+    var baseDateForRenewal by remember { mutableStateOf(System.currentTimeMillis()) }
 
     // Financial fields
     var priceInput by remember { mutableStateOf("") }
@@ -82,6 +84,9 @@ fun AddEditMemberScreen(
     var finalAmountInput by remember { mutableStateOf("") }
     var amountReceivedInput by remember { mutableStateOf("") }
     var dueAdvanceInput by remember { mutableStateOf("") }
+
+    // --- NEW: State for custom days ---
+    var customDaysInput by remember { mutableStateOf("") }
 
     var photoUri by remember { mutableStateOf<Uri?>(null) }
     var tempUri by remember { mutableStateOf<Uri?>(null) }
@@ -102,6 +107,20 @@ fun AddEditMemberScreen(
                     isSaving = false
                 }
                 is UiEvent.SaveSuccess -> {
+                    if (event.shouldSendMessage && event.member.contact.isNotBlank()) {
+                        val savedMember = event.member
+                        val firstName = savedMember.name.split(" ").firstOrNull() ?: ""
+                        val formattedFinalAmount = formatCurrency(savedMember.finalAmount ?: 0.0)
+                        val formattedStartDate = savedMember.startDate.toDateString()
+                        val formattedExpiryDate = savedMember.expiryDate.toDateString()
+                        val message = "Hi $firstName, your ${savedMember.plan} membership for $formattedFinalAmount has started on $formattedStartDate and will expire on $formattedExpiryDate. Welcome to the Iron House Gym!"
+                        try {
+                            sendWhatsAppMessage(context, savedMember.contact, message)
+                        } catch (e: Exception) {
+                            Log.e("AddEditMemberScreen", "Could not send WhatsApp message", e)
+                            Toast.makeText(context, "Could not open WhatsApp.", Toast.LENGTH_SHORT).show()
+                        }
+                    }
                     navController.popBackStack()
                 }
             }
@@ -126,34 +145,60 @@ fun AddEditMemberScreen(
         return text.trim().takeIf { it.isNotBlank() }?.replace("[^0-9.-]".toRegex(), "")?.toDoubleOrNull()
     }
 
+    // --- UPDATED: This logic now correctly handles new members, edits, extensions, and renewals ---
     LaunchedEffect(member, isRenewal) {
-        if (member == null) {
+        if (member == null) { // Brand new member
             startDate = System.currentTimeMillis()
             expiryDate = calculateExpiryDate(startDate, selectedPlan)
+            baseDateForRenewal = startDate
         } else {
+            // Populate common fields from existing member data
             name = member.name
             contact = member.contact
-            selectedPlan = member.plan
-            startDate = member.startDate
-            expiryDate = member.expiryDate
             gender = member.gender ?: ""
             batch = member.batch ?: ""
-            priceInput = member.price?.toString() ?: ""
-            discountInput = member.discount?.toString() ?: ""
-            finalAmountInput = member.finalAmount?.toString() ?: ""
-            amountReceivedInput = member.finalAmount?.toString() ?: ""
-            dueAdvanceInput = member.dueAdvance?.toString() ?: ""
             photoUri = member.photoUri?.let { Uri.parse(it) }
 
-            if (isRenewal) {
-                startDate = member.expiryDate
+            if (isRenewal) { // Extension or Renewal
+                val today = System.currentTimeMillis()
+                if (member.expiryDate >= today) { // Case 1: EXTENSION (Member is active)
+                    startDate = member.startDate // Preserve original start date
+                    baseDateForRenewal = member.expiryDate // New period starts from current expiry
+                } else { // Case 2: RENEWAL (Member has expired)
+                    startDate = today // New period starts today
+                    baseDateForRenewal = today
+                }
+                expiryDate = baseDateForRenewal
+                // Clear fields for new transaction
                 selectedPlan = ""
-                expiryDate = calculateExpiryDate(startDate, "")
                 priceInput = ""
                 discountInput = ""
                 finalAmountInput = ""
                 amountReceivedInput = ""
                 dueAdvanceInput = ""
+            } else { // Simple Edit
+                selectedPlan = member.plan
+                startDate = member.startDate
+                expiryDate = member.expiryDate
+                priceInput = member.price?.toString() ?: ""
+                discountInput = member.discount?.toString() ?: ""
+                finalAmountInput = member.finalAmount?.toString() ?: ""
+                amountReceivedInput = member.finalAmount?.toString() ?: ""
+                dueAdvanceInput = member.dueAdvance?.toString() ?: ""
+            }
+        }
+    }
+
+    // --- NEW: Calculates expiry date for custom days ---
+    LaunchedEffect(customDaysInput, baseDateForRenewal) {
+        if (selectedPlan == "Custom Days") {
+            val daysToAdd = customDaysInput.toIntOrNull()
+            if (daysToAdd != null && daysToAdd > 0) {
+                val calendar = Calendar.getInstance().apply { timeInMillis = baseDateForRenewal }
+                calendar.add(Calendar.DAY_OF_YEAR, daysToAdd)
+                expiryDate = calendar.timeInMillis
+            } else {
+                expiryDate = baseDateForRenewal
             }
         }
     }
@@ -167,6 +212,10 @@ fun AddEditMemberScreen(
         } else {
             finalAmountInput = ""
         }
+    }
+
+    LaunchedEffect(finalAmountInput) {
+        amountReceivedInput = finalAmountInput
     }
 
     LaunchedEffect(finalAmountInput, amountReceivedInput) {
@@ -219,7 +268,7 @@ fun AddEditMemberScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text( when { member == null -> "Add Member"; isRenewal -> "Renew Member"; else -> "Edit Member" }) },
+                title = { Text( when { member == null -> "Add Member"; isRenewal -> "Renew/Extend Member"; else -> "Edit Member" }) },
                 navigationIcon = { IconButton(onClick = { navController.popBackStack() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") } },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = if (isDarkTheme) Color.Transparent else MaterialTheme.colorScheme.surface,
@@ -237,6 +286,13 @@ fun AddEditMemberScreen(
                     onClick = {
                         isSaving = true
 
+                        // --- CHANGED: Creates a descriptive plan name if custom days are used ---
+                        val planToSave = if (selectedPlan == "Custom Days") {
+                            "Custom (${customDaysInput.trim()} Days)"
+                        } else {
+                            selectedPlan
+                        }
+
                         val purchaseDateToSave = if (isRenewal || member == null) {
                             System.currentTimeMillis()
                         } else {
@@ -246,7 +302,7 @@ fun AddEditMemberScreen(
                         val updatedMember = (member?.copy(
                             name = name.trim(),
                             contact = contact.trim(),
-                            plan = selectedPlan,
+                            plan = planToSave,
                             startDate = startDate,
                             expiryDate = expiryDate,
                             gender = gender,
@@ -260,7 +316,7 @@ fun AddEditMemberScreen(
                         ) ?: Member(
                             name = name.trim(),
                             contact = contact.trim(),
-                            plan = selectedPlan,
+                            plan = planToSave,
                             startDate = startDate,
                             expiryDate = expiryDate,
                             gender = gender,
@@ -280,20 +336,6 @@ fun AddEditMemberScreen(
                             isRenewal = isRenewal,
                             amountReceived = parseDoubleOrNull(amountReceivedInput) ?: 0.0
                         )
-
-                        if ((member == null || isRenewal) && updatedMember.contact.isNotBlank()) {
-                            val firstName = updatedMember.name.split(" ").firstOrNull() ?: ""
-                            val formattedFinalAmount = formatCurrency(updatedMember.finalAmount ?: 0.0)
-                            val formattedStartDate = updatedMember.startDate.toDateString()
-                            val formattedExpiryDate = updatedMember.expiryDate.toDateString()
-                            val message = "Hi $firstName, your ${updatedMember.plan} membership for $formattedFinalAmount has started on $formattedStartDate and will expire on $formattedExpiryDate. Welcome to the Iron House Gym!"
-                            try {
-                                sendWhatsAppMessage(context, updatedMember.contact, message)
-                            } catch (e: Exception) {
-                                Log.e("AddEditMemberScreen", "Could not send WhatsApp message", e)
-                                Toast.makeText(context, "Could not open WhatsApp.", Toast.LENGTH_SHORT).show()
-                            }
-                        }
                     },
                     enabled = isFormValid && !isSaving,
                     modifier = Modifier
@@ -305,7 +347,7 @@ fun AddEditMemberScreen(
                         CircularProgressIndicator(modifier = Modifier.size(24.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
                     } else {
                         Text(
-                            text = when { member == null -> "Save Member"; isRenewal -> "Renew Membership"; else -> "Update Member" },
+                            text = when { member == null -> "Save Member"; isRenewal -> "Renew/Extend"; else -> "Update Member" },
                             style = MaterialTheme.typography.titleMedium
                         )
                     }
@@ -362,6 +404,19 @@ fun AddEditMemberScreen(
                 ExposedDropdownMenuBox(expanded = planExpanded, onExpandedChange = { planExpanded = !planExpanded }) {
                     OutlinedTextField(value = selectedPlan, onValueChange = {}, readOnly = true, label = { Text("Membership Plan") }, trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = planExpanded) }, modifier = Modifier.menuAnchor().fillMaxWidth())
                     ExposedDropdownMenu(expanded = planExpanded, onDismissRequest = { planExpanded = false }) {
+                        // --- NEW: Added a "Custom Days" option ---
+                        DropdownMenuItem(
+                            text = { Text("Custom Days", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary) },
+                            onClick = {
+                                selectedPlan = "Custom Days"
+                                priceInput = "" // Clear price for manual entry
+                                customDaysInput = "" // Clear custom days
+                                expiryDate = baseDateForRenewal
+                                planExpanded = false
+                            }
+                        )
+                        Divider()
+
                         fullPlanList.forEach { plan ->
                             DropdownMenuItem(
                                 text = {
@@ -374,7 +429,8 @@ fun AddEditMemberScreen(
                                 },
                                 onClick = {
                                     selectedPlan = plan.planName
-                                    expiryDate = calculateExpiryDate(startDate, plan.planName)
+                                    customDaysInput = "" // Clear custom days input when a fixed plan is chosen
+                                    expiryDate = calculateExpiryDate(baseDateForRenewal, plan.planName)
                                     val newPrice = if (plan.price > 0) plan.price.toString() else ""
                                     priceInput = newPrice
 
@@ -392,6 +448,20 @@ fun AddEditMemberScreen(
                         }
                     }
                 }
+
+                // --- NEW: Conditional input field for custom days ---
+                if (selectedPlan == "Custom Days") {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    OutlinedTextField(
+                        value = customDaysInput,
+                        onValueChange = { customDaysInput = it },
+                        label = { Text("Enter Number of Days") },
+                        modifier = Modifier.fillMaxWidth(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true
+                    )
+                }
+
                 Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.Start) {
                     Text("Batch", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(bottom = 8.dp, top = 16.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -400,12 +470,25 @@ fun AddEditMemberScreen(
                         }
                     }
                 }
-                DatePickerField("Start Date", startDate.toDateString()) { startDatePicker.show() }
-                DatePickerField("Expiry Date", expiryDate.toDateString()) { expiryDatePicker.show() }
+                DatePickerField("Start Date", startDate.toDateString()) {
+                    if (!isRenewal) startDatePicker.show() // Start date is only editable for new members or simple edits
+                }
+                DatePickerField("Expiry Date", expiryDate.toDateString()) {
+                    if (selectedPlan != "Custom Days") expiryDatePicker.show() // Expiry is only editable if not custom
+                }
             }
 
             FormSection(title = "Payment", isDarkTheme = isDarkTheme) {
-                OutlinedTextField(value = priceInput, onValueChange = { priceInput = it }, label = { Text("Price") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true)
+                OutlinedTextField(
+                    value = priceInput,
+                    onValueChange = { priceInput = it },
+                    label = { Text("Price") },
+                    // --- CHANGED: Price is only read-only for predefined plans with a set price ---
+                    readOnly = (selectedPlan != "Custom Days" && priceInput.isNotBlank()),
+                    modifier = Modifier.fillMaxWidth(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    singleLine = true
+                )
                 OutlinedTextField(value = discountInput, onValueChange = { discountInput = it }, label = { Text("Discount (optional)") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true)
                 OutlinedTextField(value = finalAmountInput, onValueChange = { }, readOnly = true, label = { Text("Final Amount") }, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(value = amountReceivedInput, onValueChange = { amountReceivedInput = it }, label = { Text("Amount Received") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true)

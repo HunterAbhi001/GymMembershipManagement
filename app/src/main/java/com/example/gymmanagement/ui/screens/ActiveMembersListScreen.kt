@@ -72,10 +72,21 @@ fun ActiveMembersListScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 items(filteredMembers) { member ->
-                    ModernActiveMemberListItem(
+                    MemberListItem(
                         member = member,
                         onClick = {
                             navController.navigate("member_details/${member.idString}")
+                        },
+                        trailingContent = {
+                            Text(
+                                text = member.plan,
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            // Using our new smart text helper!
+                            ExpiryStatusText(member = member)
                         }
                     )
                 }

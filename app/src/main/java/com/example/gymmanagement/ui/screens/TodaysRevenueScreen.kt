@@ -1,5 +1,6 @@
 package com.example.gymmanagement.ui.screens
 
+import android.widget.Toast
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -15,24 +16,34 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import coil.compose.rememberAsyncImagePainter
 import com.example.gymmanagement.R
-import com.example.gymmanagement.data.database.Member
+import com.example.gymmanagement.data.database.Payment
 import java.text.NumberFormat
 import java.util.Currency
 import java.util.Locale
+
+// ADDED: New data class to hold combined data
+data class UiTransaction(
+    val paymentDetails: Payment,
+    val memberPhotoUri: String?
+)
+
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TodaysRevenueScreen(
     navController: NavController,
-    todaysMembers: List<Member>
+    // CHANGED: The screen now expects a list of our new UiTransaction class
+    todaysTransactions: List<UiTransaction>
 ) {
-    val totalRevenue = todaysMembers.sumOf { it.finalAmount ?: 0.0 }
+    // CHANGED: We need to sum from the nested paymentDetails
+    val totalRevenue = todaysTransactions.sumOf { it.paymentDetails.amount }
 
     Scaffold(
         topBar = {
@@ -88,10 +99,14 @@ fun TodaysRevenueScreen(
                 modifier = Modifier.fillMaxSize(),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                items(todaysMembers) { member ->
-                    ModernRevenueListItem(
-                        member = member,
-                        onClick = { navController.navigate("member_details/${member.idString}") }
+                items(todaysTransactions) { transaction -> // CHANGED: variable name to 'transaction'
+                    TransactionListItem(
+                        transaction = transaction, // CHANGED: pass the whole transaction object
+                        onClick = {
+                            if (transaction.paymentDetails.memberId.isNotBlank()) {
+                                navController.navigate("member_details/${transaction.paymentDetails.memberId}")
+                            }
+                        }
                     )
                 }
             }
@@ -100,14 +115,24 @@ fun TodaysRevenueScreen(
 }
 
 @Composable
-private fun ModernRevenueListItem(
-    member: Member,
+private fun TransactionListItem(
+    // CHANGED: The item now receives a UiTransaction object
+    transaction: UiTransaction,
     onClick: () -> Unit
 ) {
+    val context = LocalContext.current
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick),
+            .clickable {
+                if (transaction.paymentDetails.memberId.isNotBlank()) {
+                    onClick()
+                } else {
+                    Toast
+                        .makeText(context, "Cannot open details for migrated payments.", Toast.LENGTH_SHORT)
+                        .show()
+                }
+            },
         shape = RoundedCornerShape(16.dp),
         elevation = CardDefaults.cardElevation(2.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
@@ -117,9 +142,10 @@ private fun ModernRevenueListItem(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            // CHANGED: This now uses the real photo URI
             Image(
                 painter = rememberAsyncImagePainter(
-                    model = member.photoUri,
+                    model = transaction.memberPhotoUri,
                     error = painterResource(id = R.drawable.ic_person_placeholder)
                 ),
                 contentDescription = "Member Photo",
@@ -131,21 +157,22 @@ private fun ModernRevenueListItem(
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = member.name,
+                    // CHANGED: Access data via transaction.paymentDetails
+                    text = transaction.paymentDetails.memberName,
                     fontWeight = FontWeight.Bold,
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = member.plan,
+                    text = transaction.paymentDetails.type,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
 
             Text(
-                text = formatCurrency(member.finalAmount ?: 0.0),
+                text = formatCurrency(transaction.paymentDetails.amount),
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.primary
             )

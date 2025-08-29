@@ -48,7 +48,8 @@ fun DashboardScreen(
     expiredMembers: List<Member>,
     onDeleteMember: (Member) -> Unit,
     todaysRevenue: Double = 0.0,
-    totalBalance: Double = 0.0,
+    // --- UPDATED: Renamed for clarity to match the data being passed ---
+    thisMonthsCollection: Double = 0.0,
     totalDues: Double = 0.0,
     isDarkTheme: Boolean,
     onThemeToggle: () -> Unit
@@ -204,8 +205,8 @@ fun DashboardScreen(
                         onClick = { navController.navigate("dues_advance") }
                     )
                     StatCard(
-                        label = "Collections",
-                        count = formatCurrencyShort(totalBalance),
+                        label = "This Month",
+                        count = formatCurrencyShort(thisMonthsCollection),
                         icon = Icons.Default.AccountBalanceWallet,
                         gradient = collectionsGradient,
                         modifier = Modifier

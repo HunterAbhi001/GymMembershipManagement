@@ -1,38 +1,24 @@
 package com.example.gymmanagement.ui.screens
 
 import android.widget.Toast
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
-import coil.compose.rememberAsyncImagePainter
-import com.example.gymmanagement.R
 import com.example.gymmanagement.data.database.Member
 import com.example.gymmanagement.ui.theme.RedAccent
 import com.example.gymmanagement.ui.utils.DateUtils
 import com.example.gymmanagement.ui.utils.sendWhatsAppMessage
-import java.text.NumberFormat
-import java.util.*
 import java.util.concurrent.TimeUnit
-import kotlin.math.abs
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -101,7 +87,6 @@ fun ExpiringMembersScreen(
                 total = membersExpiringToday.size,
                 onDismiss = { showReminderDialog = false },
                 onSend = {
-                    // --- FIXED: Use only the first name in the reminder message ---
                     val firstName = currentMember.name.split(" ").firstOrNull() ?: currentMember.name
                     val message = "Hi $firstName, just a friendly reminder that your gym membership expires today. Thank you!"
                     sendWhatsAppMessage(context, currentMember.contact, message)
@@ -134,7 +119,6 @@ fun ExpiringMembersScreen(
                     }
                 },
                 actions = {
-                    // --- "Remind All" button for members expiring today ---
                     IconButton(onClick = {
                         if (membersExpiringToday.isNotEmpty()) {
                             reminderIndex = 0
@@ -165,9 +149,20 @@ fun ExpiringMembersScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 items(filteredMembers) { member ->
-                    ModernExpiringMemberListItem(
+                    // --- UPDATED: Using the reusable MemberListItem ---
+                    MemberListItem(
                         member = member,
-                        onClick = { navController.navigate("member_details/${member.idString}") }
+                        onClick = { navController.navigate("member_details/${member.idString}") },
+                        trailingContent = {
+                            Text(
+                                text = member.plan,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            // Using our new and improved smart text helper
+                            ExpiryStatusText(member = member)
+                        }
                     )
                 }
             }
@@ -175,81 +170,7 @@ fun ExpiringMembersScreen(
     }
 }
 
-
-@Composable
-private fun ModernExpiringMemberListItem(
-    member: Member,
-    onClick: () -> Unit
-) {
-    val todayStart = DateUtils.startOfDayMillis()
-    val diff = member.expiryDate - todayStart
-    val daysRemaining = TimeUnit.MILLISECONDS.toDays(diff).coerceAtLeast(0)
-
-    val expiryText = when (daysRemaining) {
-        0L -> "Expires today"
-        1L -> "Expires in 1 day"
-        else -> "Expires in $daysRemaining days"
-    }
-
-    val statusColor = if (daysRemaining <= 3) RedAccent else Color(0xFFFFC107)
-
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick),
-        shape = RoundedCornerShape(16.dp),
-        elevation = CardDefaults.cardElevation(4.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-    ) {
-        Row(
-            modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            Image(
-                painter = rememberAsyncImagePainter(
-                    model = member.photoUri,
-                    error = painterResource(id = R.drawable.ic_person_placeholder)
-                ),
-                contentDescription = "Member Photo",
-                modifier = Modifier
-                    .size(56.dp)
-                    .clip(CircleShape),
-                contentScale = ContentScale.Crop
-            )
-
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = member.name,
-                    fontWeight = FontWeight.Bold,
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = member.contact,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-
-            Column(horizontalAlignment = Alignment.End) {
-                Text(
-                    text = expiryText,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = statusColor,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = member.plan,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-    }
-}
+// --- REMOVED: The old ModernExpiringMemberListItem is no longer needed ---
 
 // --- Reusable Reminder Dialog ---
 @Composable
@@ -284,11 +205,4 @@ private fun ReminderDialog(
             }
         }
     )
-}
-
-private fun formatCurrency(value: Double): String {
-    val format = NumberFormat.getCurrencyInstance(Locale("en", "IN"))
-    format.currency = Currency.getInstance("INR")
-    format.maximumFractionDigits = 2
-    return format.format(value)
 }
