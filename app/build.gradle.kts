@@ -69,6 +69,7 @@ dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.1")
     implementation("androidx.activity:activity-compose:1.9.0")
+    implementation("androidx.appcompat:appcompat:1.6.1")
 
     // Compose UI (BOM provides versions)
     implementation("androidx.compose.ui:ui")
@@ -112,4 +113,10 @@ dependencies {
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
+
+    // For Biometric authentication
+    implementation("androidx.biometric:biometric-ktx:1.2.0-alpha05")
+
+    // For securely storing the PIN and settings
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
 }

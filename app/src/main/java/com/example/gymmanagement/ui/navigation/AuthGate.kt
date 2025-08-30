@@ -6,6 +6,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import com.example.gymmanagement.ui.MainApp // --- ADD THIS IMPORT ---
 import com.example.gymmanagement.ui.screens.LoginScreen
 import com.google.firebase.auth.FirebaseAuth
 
@@ -17,6 +18,7 @@ fun AuthGate(
     val auth = remember { FirebaseAuth.getInstance() }
     var isLoggedIn by remember { mutableStateOf(auth.currentUser != null) }
 
+    // This is your robust, real-time listener. We will keep it.
     DisposableEffect(auth) {
         val listener = FirebaseAuth.AuthStateListener { firebaseAuth ->
             isLoggedIn = firebaseAuth.currentUser != null
@@ -29,12 +31,15 @@ fun AuthGate(
     }
 
     if (isLoggedIn) {
-        // Pass the theme state and toggle function down to the main app navigator
-        AppNavigator(
+        // --- THIS IS THE ONLY CHANGE ---
+        // Instead of AppNavigator, we call MainApp.
+        // MainApp will then handle the lock screen before showing the AppNavigator.
+        MainApp(
             isDarkTheme = isDarkTheme,
             onThemeToggle = onThemeToggle
         )
     } else {
+        // We keep your original LoginScreen call.
         LoginScreen(onLoginSuccess = { isLoggedIn = true })
     }
 }

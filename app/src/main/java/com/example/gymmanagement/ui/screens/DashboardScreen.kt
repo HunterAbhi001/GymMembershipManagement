@@ -25,6 +25,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.navigation.NavController
 import com.example.gymmanagement.data.database.Member
 import com.example.gymmanagement.ui.icons.MessagesIcon
@@ -54,6 +56,7 @@ fun DashboardScreen(
     isDarkTheme: Boolean,
     onThemeToggle: () -> Unit
 ) {
+    val haptics = LocalHapticFeedback.current
     val context = LocalContext.current
     val todayStart = DateUtils.startOfDayMillis()
     val activeMemberCount = allMembers.count { it.expiryDate >= todayStart }
@@ -76,6 +79,7 @@ fun DashboardScreen(
             confirmButton = {
                 Button(
                     onClick = {
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                         onDeleteMember(memberToDelete!!)
                         memberToDelete = null
                     },
@@ -85,7 +89,9 @@ fun DashboardScreen(
                 }
             },
             dismissButton = {
-                OutlinedButton(onClick = { memberToDelete = null }) {
+                OutlinedButton(onClick = {
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    memberToDelete = null }) {
                     Text("Cancel")
                 }
             }
@@ -112,7 +118,9 @@ fun DashboardScreen(
                     actionIconContentColor = if (isDarkTheme) Color.White.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurfaceVariant
                 ),
                 actions = {
-                    IconButton(onClick = { navController.navigate("search_members") }) {
+                    IconButton(onClick = {
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        navController.navigate("search_members") }) {
                         Icon(Icons.Default.Search, contentDescription = "Search Members")
                     }
                     IconButton(onClick = onThemeToggle) {
@@ -121,7 +129,9 @@ fun DashboardScreen(
                             contentDescription = "Toggle Theme"
                         )
                     }
-                    IconButton(onClick = { navController.navigate("settings_screen") }) {
+                    IconButton(onClick = {
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        navController.navigate("settings_screen") }) {
                         Icon(Icons.Default.Settings, contentDescription = "Settings")
                     }
                 }
@@ -153,7 +163,9 @@ fun DashboardScreen(
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxHeight(),
-                        onClick = { navController.navigate("active_members_list") }
+                        onClick = {
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            navController.navigate("active_members_list") }
                     )
                     StatCard(
                         label = "Expiring Soon",
@@ -163,7 +175,9 @@ fun DashboardScreen(
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxHeight(),
-                        onClick = { navController.navigate("expiring_members") }
+                        onClick = {
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            navController.navigate("expiring_members") }
                     )
                     StatCard(
                         label = "Expired",
@@ -173,7 +187,9 @@ fun DashboardScreen(
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxHeight(),
-                        onClick = { navController.navigate("expired_members_list") }
+                        onClick = {
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            navController.navigate("expired_members_list") }
                     )
                 }
             }
@@ -192,7 +208,9 @@ fun DashboardScreen(
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxHeight(),
-                        onClick = { navController.navigate("todays_revenue") }
+                        onClick = {
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            navController.navigate("todays_revenue") }
                     )
                     StatCard(
                         label = "Dues",
@@ -202,7 +220,9 @@ fun DashboardScreen(
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxHeight(),
-                        onClick = { navController.navigate("dues_advance") }
+                        onClick = {
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            navController.navigate("dues_advance") }
                     )
                     StatCard(
                         label = "This Month",
@@ -212,7 +232,9 @@ fun DashboardScreen(
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxHeight(),
-                        onClick = { navController.navigate("collections") }
+                        onClick = {
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            navController.navigate("collections") }
                     )
                 }
             }
@@ -221,7 +243,9 @@ fun DashboardScreen(
                     label = "Add New Member",
                     icon = Icons.Default.PersonAdd,
                     isDarkTheme = isDarkTheme,
-                    onClick = { navController.navigate("add_edit_member") }
+                    onClick = {
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        navController.navigate("add_edit_member") }
                 )
             }
             item {
@@ -229,7 +253,9 @@ fun DashboardScreen(
                     label = "Manage All Members",
                     icon = Icons.Default.People,
                     isDarkTheme = isDarkTheme,
-                    onClick = { navController.navigate("all_members_list") }
+                    onClick = {
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        navController.navigate("all_members_list") }
                 )
             }
             item {
@@ -237,7 +263,9 @@ fun DashboardScreen(
                     label = "Analytics & Reports",
                     icon = Icons.Default.Analytics,
                     isDarkTheme = isDarkTheme,
-                    onClick = { navController.navigate("analytics") }
+                    onClick = {
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        navController.navigate("analytics") }
                 )
             }
             item {
@@ -267,7 +295,9 @@ fun DashboardScreen(
                         isDarkTheme = isDarkTheme,
                         onSmsClick = { message -> sendSmsMessage(context, member.contact, message) },
                         onWhatsAppClick = { message -> sendWhatsAppMessage(context, member.contact, message) },
-                        onClick = { navController.navigate("member_details/${member.idString}") },
+                        onClick = {
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            navController.navigate("member_details/${member.idString}") },
                         onRenewClick = { navController.navigate("add_edit_member?memberId=${member.idString}&isRenewal=true") },
                         onEditClick = { navController.navigate("add_edit_member?memberId=${member.idString}&isRenewal=false") },
                         onDeleteClick = { memberToDelete = member }

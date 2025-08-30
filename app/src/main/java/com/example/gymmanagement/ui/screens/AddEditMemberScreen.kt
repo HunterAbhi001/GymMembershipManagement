@@ -53,6 +53,8 @@ import com.example.gymmanagement.ui.utils.DateUtils.toDateString
 import com.example.gymmanagement.ui.utils.sendWhatsAppMessage
 import com.example.gymmanagement.viewmodel.MainViewModel
 import com.example.gymmanagement.viewmodel.UiEvent
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import java.text.NumberFormat
 import java.util.*
 
@@ -66,6 +68,9 @@ fun AddEditMemberScreen(
     plans: List<Plan>,
     isDarkTheme: Boolean
 ) {
+    // --- HAPTICS STEP 1: Get the haptics instance ---
+    val haptics = LocalHapticFeedback.current
+
     // Basic fields
     var name by remember { mutableStateOf("") }
     var contact by remember { mutableStateOf("") }
@@ -145,7 +150,6 @@ fun AddEditMemberScreen(
         return text.trim().takeIf { it.isNotBlank() }?.replace("[^0-9.-]".toRegex(), "")?.toDoubleOrNull()
     }
 
-    // --- UPDATED: This logic now correctly handles new members, edits, extensions, and renewals ---
     LaunchedEffect(member, isRenewal) {
         if (member == null) { // Brand new member
             startDate = System.currentTimeMillis()
@@ -189,7 +193,6 @@ fun AddEditMemberScreen(
         }
     }
 
-    // --- NEW: Calculates expiry date for custom days ---
     LaunchedEffect(customDaysInput, baseDateForRenewal) {
         if (selectedPlan == "Custom Days") {
             val daysToAdd = customDaysInput.toIntOrNull()
@@ -269,7 +272,15 @@ fun AddEditMemberScreen(
         topBar = {
             TopAppBar(
                 title = { Text( when { member == null -> "Add Member"; isRenewal -> "Renew/Extend Member"; else -> "Edit Member" }) },
-                navigationIcon = { IconButton(onClick = { navController.popBackStack() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") } },
+                navigationIcon = {
+                    IconButton(onClick = {
+                        // Haptic feedback
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        navController.popBackStack()
+                    }) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = if (isDarkTheme) Color.Transparent else MaterialTheme.colorScheme.surface,
                     titleContentColor = MaterialTheme.colorScheme.onSurface,
@@ -284,9 +295,11 @@ fun AddEditMemberScreen(
             ) {
                 Button(
                     onClick = {
+                        // Haptic feedback - Stronger confirmation
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+
                         isSaving = true
 
-                        // --- CHANGED: Creates a descriptive plan name if custom days are used ---
                         val planToSave = if (selectedPlan == "Custom Days") {
                             "Custom (${customDaysInput.trim()} Days)"
                         } else {
@@ -372,7 +385,11 @@ fun AddEditMemberScreen(
                     .clip(CircleShape)
                     .background(MaterialTheme.colorScheme.secondaryContainer)
                     .border(2.dp, MaterialTheme.colorScheme.primary, CircleShape)
-                    .clickable { showPhotoPickerDialog = true },
+                    .clickable {
+                        // Haptic feedback
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        showPhotoPickerDialog = true
+                    },
                 contentAlignment = Alignment.Center
             ) {
                 if (photoUri != null) {
@@ -394,20 +411,36 @@ fun AddEditMemberScreen(
                     Text("Gender", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(bottom = 8.dp, top = 8.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         genders.forEach { item ->
-                            FilterChip(selected = (gender == item), onClick = { gender = item }, label = { Text(item) })
+                            FilterChip(
+                                selected = (gender == item),
+                                onClick = {
+                                    // Haptic feedback
+                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    gender = item
+                                },
+                                label = { Text(item) }
+                            )
                         }
                     }
                 }
             }
 
             FormSection(title = "Membership Plan", isDarkTheme = isDarkTheme) {
-                ExposedDropdownMenuBox(expanded = planExpanded, onExpandedChange = { planExpanded = !planExpanded }) {
+                ExposedDropdownMenuBox(
+                    expanded = planExpanded,
+                    onExpandedChange = {
+                        // Haptic feedback
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        planExpanded = !planExpanded
+                    }
+                ) {
                     OutlinedTextField(value = selectedPlan, onValueChange = {}, readOnly = true, label = { Text("Membership Plan") }, trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = planExpanded) }, modifier = Modifier.menuAnchor().fillMaxWidth())
                     ExposedDropdownMenu(expanded = planExpanded, onDismissRequest = { planExpanded = false }) {
-                        // --- NEW: Added a "Custom Days" option ---
                         DropdownMenuItem(
                             text = { Text("Custom Days", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary) },
                             onClick = {
+                                // Haptic feedback
+                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                                 selectedPlan = "Custom Days"
                                 priceInput = "" // Clear price for manual entry
                                 customDaysInput = "" // Clear custom days
@@ -428,8 +461,10 @@ fun AddEditMemberScreen(
                                     }
                                 },
                                 onClick = {
+                                    // Haptic feedback
+                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                                     selectedPlan = plan.planName
-                                    customDaysInput = "" // Clear custom days input when a fixed plan is chosen
+                                    customDaysInput = ""
                                     expiryDate = calculateExpiryDate(baseDateForRenewal, plan.planName)
                                     val newPrice = if (plan.price > 0) plan.price.toString() else ""
                                     priceInput = newPrice
@@ -449,7 +484,6 @@ fun AddEditMemberScreen(
                     }
                 }
 
-                // --- NEW: Conditional input field for custom days ---
                 if (selectedPlan == "Custom Days") {
                     Spacer(modifier = Modifier.height(16.dp))
                     OutlinedTextField(
@@ -466,14 +500,26 @@ fun AddEditMemberScreen(
                     Text("Batch", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(bottom = 8.dp, top = 16.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         batches.forEach { item ->
-                            FilterChip(selected = (batch == item), onClick = { batch = item }, label = { Text(item) })
+                            FilterChip(
+                                selected = (batch == item),
+                                onClick = {
+                                    // Haptic feedback
+                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    batch = item
+                                },
+                                label = { Text(item) }
+                            )
                         }
                     }
                 }
                 DatePickerField("Start Date", startDate.toDateString()) {
+                    // Haptic feedback
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                     if (!isRenewal) startDatePicker.show() // Start date is only editable for new members or simple edits
                 }
                 DatePickerField("Expiry Date", expiryDate.toDateString()) {
+                    // Haptic feedback
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                     if (selectedPlan != "Custom Days") expiryDatePicker.show() // Expiry is only editable if not custom
                 }
             }
@@ -483,7 +529,6 @@ fun AddEditMemberScreen(
                     value = priceInput,
                     onValueChange = { priceInput = it },
                     label = { Text("Price") },
-                    // --- CHANGED: Price is only read-only for predefined plans with a set price ---
                     readOnly = (selectedPlan != "Custom Days" && priceInput.isNotBlank()),
                     modifier = Modifier.fillMaxWidth(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
@@ -499,7 +544,36 @@ fun AddEditMemberScreen(
     }
 
     if (showPhotoPickerDialog) {
-        AlertDialog(onDismissRequest = { showPhotoPickerDialog = false }, title = { Text("Select Option") }, text = { Column { Text("Take Photo", modifier = Modifier.fillMaxWidth().clickable { showPhotoPickerDialog = false; launchCameraWithCheck() }.padding(12.dp)); Text("Choose from Gallery", modifier = Modifier.fillMaxWidth().clickable { showPhotoPickerDialog = false; pickImageFromGallery() }.padding(12.dp)) } }, confirmButton = { TextButton(onClick = { showPhotoPickerDialog = false }) { Text("Cancel") } })
+        AlertDialog(
+            onDismissRequest = { showPhotoPickerDialog = false },
+            title = { Text("Select Option") },
+            text = {
+                Column {
+                    Text("Take Photo", modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            // Haptic feedback
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            showPhotoPickerDialog = false; launchCameraWithCheck()
+                        }
+                        .padding(12.dp))
+                    Text("Choose from Gallery", modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            // Haptic feedback
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            showPhotoPickerDialog = false; pickImageFromGallery()
+                        }
+                        .padding(12.dp))
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    // Haptic feedback
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    showPhotoPickerDialog = false
+                }) { Text("Cancel") }
+            })
     }
 }
 
