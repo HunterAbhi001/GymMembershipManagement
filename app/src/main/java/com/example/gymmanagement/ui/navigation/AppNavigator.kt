@@ -165,7 +165,8 @@ fun AppNavigator(
                 navController = navController,
                 member = member,
                 onDelete = { if (member != null) viewModel.deleteMember(member) },
-                viewModel = viewModel
+                viewModel = viewModel,
+                isDarkTheme = isDarkTheme
             )
         }
 

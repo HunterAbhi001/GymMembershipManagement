@@ -8,24 +8,32 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.ViewModelProvider
 import com.example.gymmanagement.ui.navigation.AuthGate
 import com.example.gymmanagement.ui.theme.GymManagementTheme
+import com.example.gymmanagement.viewmodel.ThemeViewModel
+import com.example.gymmanagement.viewmodel.ThemeViewModelFactory
 
 class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // --- UPDATED: Get the ThemeViewModel instance ---
+        val themeViewModel = ViewModelProvider(this, ThemeViewModelFactory(application)).get(ThemeViewModel::class.java)
+
         setContent {
-            var isDarkTheme by remember { mutableStateOf(true) }
+            // --- UPDATED: Collect the theme state from the ViewModel ---
+            val isDarkTheme by themeViewModel.darkTheme.collectAsState()
 
             GymManagementTheme(darkTheme = isDarkTheme) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    // This is correct: The app starts with the AuthGate to check for login.
+                    // --- UPDATED: The toggle function now calls the ViewModel ---
                     AuthGate(
                         isDarkTheme = isDarkTheme,
-                        onThemeToggle = { isDarkTheme = !isDarkTheme }
+                        onThemeToggle = { themeViewModel.toggleTheme() }
                     )
                 }
             }

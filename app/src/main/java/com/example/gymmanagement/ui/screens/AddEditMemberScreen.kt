@@ -233,10 +233,37 @@ fun AddEditMemberScreen(
     fun pickImageFromGallery() { val permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) Manifest.permission.READ_MEDIA_IMAGES else Manifest.permission.READ_EXTERNAL_STORAGE; if (ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED) { galleryLauncher.launch(arrayOf("image/*")) } else { storagePermissionLauncher.launch(permission) } }
     fun launchCameraWithCheck() { if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) { val newUri = ComposeFileProvider.getImageUri(context); grantUriPermissionsForCamera(context, newUri); tempUri = newUri; cameraLauncher.launch(newUri) } else { cameraPermissionLauncher.launch(Manifest.permission.CAMERA) } }
 
+    val datePickerTheme = if (isDarkTheme) {
+        R.style.App_Theme_DatePicker_Dark
+    } else {
+        R.style.App_Theme_DatePicker_Light
+    }
+
     val startCal = Calendar.getInstance().apply { timeInMillis = startDate }
-    val startDatePicker = DatePickerDialog(context, { _: DatePicker, y: Int, m: Int, d: Int -> val newDate = Calendar.getInstance().apply { set(y, m, d) }; startDate = newDate.timeInMillis; expiryDate = calculateExpiryDate(startDate, selectedPlan) }, startCal.get(Calendar.YEAR), startCal.get(Calendar.MONTH), startCal.get(Calendar.DAY_OF_MONTH))
+    val startDatePicker = DatePickerDialog(
+        context,
+        datePickerTheme,
+        { _: DatePicker, y: Int, m: Int, d: Int ->
+            val newDate = Calendar.getInstance().apply { set(y, m, d) }
+            startDate = newDate.timeInMillis
+            baseDateForRenewal = newDate.timeInMillis
+            expiryDate = calculateExpiryDate(startDate, selectedPlan)
+        },
+        startCal.get(Calendar.YEAR),
+        startCal.get(Calendar.MONTH),
+        startCal.get(Calendar.DAY_OF_MONTH)
+    )
     val expiryCal = Calendar.getInstance().apply { timeInMillis = expiryDate }
-    val expiryDatePicker = DatePickerDialog(context, { _: DatePicker, y: Int, m: Int, d: Int -> expiryDate = Calendar.getInstance().apply { set(y, m, d) }.timeInMillis }, expiryCal.get(Calendar.YEAR), expiryCal.get(Calendar.MONTH), expiryCal.get(Calendar.DAY_OF_MONTH))
+    val expiryDatePicker = DatePickerDialog(
+        context,
+        datePickerTheme,
+        { _: DatePicker, y: Int, m: Int, d: Int ->
+            expiryDate = Calendar.getInstance().apply { set(y, m, d) }.timeInMillis
+        },
+        expiryCal.get(Calendar.YEAR),
+        expiryCal.get(Calendar.MONTH),
+        expiryCal.get(Calendar.DAY_OF_MONTH)
+    )
 
     val genders = listOf("Male", "Female", "Other")
     val batches = listOf("Morning", "Evening")

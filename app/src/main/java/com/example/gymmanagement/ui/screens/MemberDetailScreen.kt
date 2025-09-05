@@ -55,7 +55,8 @@ fun MemberDetailScreen(
     navController: NavController,
     member: Member?,
     onDelete: () -> Unit,
-    viewModel: MainViewModel
+    viewModel: MainViewModel,
+    isDarkTheme: Boolean
 ) {
     var showDeleteConfirm by remember { mutableStateOf(false) }
     val context = LocalContext.current
@@ -168,21 +169,48 @@ fun MemberDetailScreen(
                     MemberHeader(member = member)
                 }
                 item {
-                    MembershipInfoCard(member = member)
+                    MembershipInfoCard(member = member, navController = navController, isDarkTheme = isDarkTheme)
                 }
                 item {
-                    PaymentInfoCard(member = member)
+                    PaymentInfoCard(member = member, isDarkTheme = isDarkTheme)
                 }
                 item {
-                    MembershipHistoryCard(history = history)
+                    MembershipHistoryCard(history = history, isDarkTheme = isDarkTheme)
                 }
-                // --- ADDED: New item for the payment history card ---
                 item {
                     PaymentHistoryCard(payments = payments, onDeleteClick = { payment ->
                         paymentToDelete = payment
-                    })
+                    }, isDarkTheme = isDarkTheme)
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun DetailCard(
+    isDarkTheme: Boolean,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    val cardModifier = if (isDarkTheme) {
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color.White.copy(alpha = 0.05f))
+            .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(12.dp))
+    } else {
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surface)
+            .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f), RoundedCornerShape(12.dp))
+    }
+
+    Box(modifier = cardModifier) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            content()
         }
     }
 }
@@ -268,61 +296,42 @@ private fun MemberHeader(member: Member) {
 }
 
 @Composable
-private fun MembershipInfoCard(member: Member) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        elevation = CardDefaults.cardElevation(2.dp)
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text("Membership Details", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            Spacer(modifier = Modifier.height(16.dp))
-            InfoRow(icon = Icons.Default.Badge, label = "Gender", value = member.gender ?: "N/A")
-            InfoRow(icon = Icons.Default.FitnessCenter, label = "Plan", value = member.plan)
-            InfoRow(icon = Icons.Default.AccessTime, label = "Batch", value = member.batch ?: "N/A")
-            InfoRow(icon = Icons.Default.Event, label = "Start Date", value = member.startDate.toDateString())
-            InfoRow(icon = Icons.Default.EventBusy, label = "Expiry Date", value = member.expiryDate.toDateString())
-        }
+private fun MembershipInfoCard(member: Member, navController: NavController, isDarkTheme: Boolean) {
+    DetailCard(isDarkTheme = isDarkTheme) {
+        Text("Membership Details", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(16.dp))
+        InfoRow(icon = Icons.Default.Badge, label = "Gender", value = member.gender ?: "N/A")
+        InfoRow(icon = Icons.Default.FitnessCenter, label = "Plan", value = member.plan)
+        InfoRow(icon = Icons.Default.AccessTime, label = "Batch", value = member.batch ?: "N/A")
+        InfoRow(icon = Icons.Default.Event, label = "Start Date", value = member.startDate.toDateString())
+        InfoRow(icon = Icons.Default.EventBusy, label = "Expiry Date", value = member.expiryDate.toDateString())
     }
 }
 
 @Composable
-private fun PaymentInfoCard(member: Member) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        elevation = CardDefaults.cardElevation(2.dp)
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text("Payment Information", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            Spacer(modifier = Modifier.height(16.dp))
-            InfoRow(icon = Icons.Default.CalendarToday, label = "Purchase Date", value = member.purchaseDate?.toDateString() ?: "N/A")
-            InfoRow(icon = Icons.Default.PriceCheck, label = "Price", value = formatCurrency(member.price))
-            InfoRow(icon = Icons.Default.TrendingDown, label = "Discount", value = formatCurrency(member.discount))
-            InfoRow(icon = Icons.Default.ReceiptLong, label = "Final Amount", value = formatCurrency(member.finalAmount), isHighlight = true)
-            InfoRow(icon = Icons.Default.AccountBalanceWallet, label = "Due / Advance", value = formatCurrency(member.dueAdvance))
-        }
+private fun PaymentInfoCard(member: Member, isDarkTheme: Boolean) {
+    DetailCard(isDarkTheme = isDarkTheme) {
+        Text("Payment Information", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(16.dp))
+        InfoRow(icon = Icons.Default.CalendarToday, label = "Purchase Date", value = member.purchaseDate?.toDateString() ?: "N/A")
+        InfoRow(icon = Icons.Default.PriceCheck, label = "Price", value = formatCurrency(member.price))
+        InfoRow(icon = Icons.Default.TrendingDown, label = "Discount", value = formatCurrency(member.discount))
+        InfoRow(icon = Icons.Default.ReceiptLong, label = "Final Amount", value = formatCurrency(member.finalAmount), isHighlight = true)
+        InfoRow(icon = Icons.Default.AccountBalanceWallet, label = "Due / Advance", value = formatCurrency(member.dueAdvance))
     }
 }
 
 @Composable
-private fun MembershipHistoryCard(history: List<MembershipHistory>) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        elevation = CardDefaults.cardElevation(2.dp)
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text("Membership History", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            Spacer(modifier = Modifier.height(16.dp))
-            if (history.isEmpty()) {
-                Text("No past membership records found.", color = Color.Gray)
-            } else {
-                history.forEach { record ->
-                    HistoryListItem(record)
+private fun MembershipHistoryCard(history: List<MembershipHistory>, isDarkTheme: Boolean) {
+    DetailCard(isDarkTheme = isDarkTheme) {
+        Text("Membership History", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(16.dp))
+        if (history.isEmpty()) {
+            Text("No past membership records found.", color = Color.Gray)
+        } else {
+            history.forEach { record ->
+                HistoryListItem(record)
+                if (record != history.last()) {
                     Divider(modifier = Modifier.padding(vertical = 8.dp))
                 }
             }
@@ -334,25 +343,19 @@ private fun MembershipHistoryCard(history: List<MembershipHistory>) {
 @Composable
 private fun PaymentHistoryCard(
     payments: List<Payment>,
-    onDeleteClick: (Payment) -> Unit
+    onDeleteClick: (Payment) -> Unit,
+    isDarkTheme: Boolean
 ) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        elevation = CardDefaults.cardElevation(2.dp)
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text("Payment History", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            Spacer(modifier = Modifier.height(16.dp))
-            if (payments.isEmpty()) {
-                Text("No payment records found.", color = Color.Gray)
-            } else {
-                payments.forEach { payment ->
-                    PaymentListItem(payment = payment, onDeleteClick = { onDeleteClick(payment) })
-                    if (payment != payments.last()) {
-                        Divider(modifier = Modifier.padding(vertical = 8.dp))
-                    }
+    DetailCard(isDarkTheme = isDarkTheme) {
+        Text("Payment History", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(16.dp))
+        if (payments.isEmpty()) {
+            Text("No payment records found.", color = Color.Gray)
+        } else {
+            payments.forEach { payment ->
+                PaymentListItem(payment = payment, onDeleteClick = { onDeleteClick(payment) })
+                if (payment != payments.last()) {
+                    Divider(modifier = Modifier.padding(vertical = 8.dp))
                 }
             }
         }

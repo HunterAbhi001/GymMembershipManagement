@@ -22,12 +22,14 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.navigation.NavController
+import coil.compose.AsyncImage
 import com.example.gymmanagement.data.database.Member
 import com.example.gymmanagement.ui.icons.MessagesIcon
 import com.example.gymmanagement.ui.icons.WhatsAppIcon
@@ -50,7 +52,6 @@ fun DashboardScreen(
     expiredMembers: List<Member>,
     onDeleteMember: (Member) -> Unit,
     todaysRevenue: Double = 0.0,
-    // --- UPDATED: Renamed for clarity to match the data being passed ---
     thisMonthsCollection: Double = 0.0,
     totalDues: Double = 0.0,
     isDarkTheme: Boolean,
@@ -62,7 +63,6 @@ fun DashboardScreen(
     val activeMemberCount = allMembers.count { it.expiryDate >= todayStart }
     var memberToDelete by remember { mutableStateOf<Member?>(null) }
 
-    // --- Gradient brushes for the cards (these look good in both light and dark mode) ---
     val activeGradient = Brush.verticalGradient(listOf(Color(0xFF66BB6A), Color(0xFF388E3C)))
     val expiringGradient = Brush.verticalGradient(listOf(Color(0xFFFFCA28), Color(0xFFFFA000)))
     val expiredGradient = Brush.verticalGradient(listOf(Color(0xFFEF5350), Color(0xFFD32F2F)))
@@ -357,6 +357,7 @@ fun StatCard(
     }
 }
 
+// --- THIS IS THE ONLY FUNCTION THAT HAS BEEN CHANGED ---
 @Composable
 fun ActionCard(
     label: String,
@@ -365,6 +366,7 @@ fun ActionCard(
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
+    // This styling logic is now copied exactly from ExpiringMemberItem
     val cardModifier = if (isDarkTheme) {
         modifier
             .fillMaxWidth()
@@ -375,7 +377,8 @@ fun ActionCard(
         modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .background(MaterialTheme.colorScheme.surface)
+            .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
     }
 
     Box(
@@ -430,8 +433,6 @@ fun ExpiringMemberItem(
         else -> "Expires in $daysRemaining days"
     }
 
-    val borderColor = if (daysRemaining <= 3) RedAccent else if (isDarkTheme) Color(0xFFFFCA28) else MaterialTheme.colorScheme.primary
-
     val message = "Hi ${member.name.split(" ").firstOrNull() ?: ""}, a friendly reminder that your gym membership ${
         if (daysRemaining == 0L) "expires today" else "is expiring in $daysRemaining days"
     }. Please visit the front desk to renew. Thank you!"
@@ -460,11 +461,12 @@ fun ExpiringMemberItem(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            // This is the version that shows the initial, not the photo
             Box(
                 modifier = Modifier
                     .size(40.dp)
                     .clip(CircleShape)
-                    .background(borderColor),
+                    .background(if (daysRemaining <= 3) RedAccent else if (isDarkTheme) Color(0xFFFFCA28) else MaterialTheme.colorScheme.primary),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
