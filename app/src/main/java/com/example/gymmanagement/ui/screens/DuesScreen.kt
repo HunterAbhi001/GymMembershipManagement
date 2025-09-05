@@ -1,12 +1,9 @@
 package com.example.gymmanagement.ui.screens
 
 import android.widget.Toast
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -15,27 +12,21 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
-import coil.compose.rememberAsyncImagePainter
-import com.example.gymmanagement.R
 import com.example.gymmanagement.data.database.Member
 import com.example.gymmanagement.ui.icons.WhatsAppIcon
 import com.example.gymmanagement.ui.theme.RedAccent
 import com.example.gymmanagement.ui.utils.sendWhatsAppMessage
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
-import java.text.NumberFormat
-import java.util.Currency
-import java.util.Locale
 import kotlin.math.abs
+
+// --- UPDATED: Importing the shared components and helpers ---
+import com.example.gymmanagement.ui.screens.MemberListItem
+import com.example.gymmanagement.ui.screens.formatCurrency
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -48,7 +39,6 @@ fun DuesScreen(
     var memberToPay by remember { mutableStateOf<Member?>(null) }
     val context = LocalContext.current
 
-    // --- State for the guided reminder flow ---
     var showReminderDialog by remember { mutableStateOf(false) }
     var reminderIndex by remember { mutableStateOf(0) }
 
@@ -64,7 +54,6 @@ fun DuesScreen(
         )
     }
 
-    // --- Guided Reminder Dialog ---
     if (showReminderDialog) {
         val currentMember = membersWithDues.getOrNull(reminderIndex)
         if (currentMember != null) {
@@ -203,8 +192,6 @@ fun SummaryCard(title: String, amount: Double, color: Color, modifier: Modifier 
     }
 }
 
-// --- REMOVED: The old ModernDuesListItem is no longer needed ---
-
 @Composable
 private fun PaymentDialog(
     member: Member,
@@ -283,9 +270,4 @@ private fun ReminderDialog(
     )
 }
 
-private fun formatCurrency(value: Double): String {
-    val format = NumberFormat.getCurrencyInstance(Locale("en", "IN"))
-    format.currency = Currency.getInstance("INR")
-    format.maximumFractionDigits = 2
-    return format.format(value)
-}
+// The duplicate, private formatCurrency function has been REMOVED from this file.

@@ -1,5 +1,6 @@
 package com.example.gymmanagement.ui.screens
 
+import android.widget.Toast
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -13,27 +14,33 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import com.example.gymmanagement.R
 import com.example.gymmanagement.data.database.Member
-import androidx.compose.ui.graphics.Color
+import com.example.gymmanagement.data.database.Payment
 import com.example.gymmanagement.ui.theme.RedAccent
-import com.example.gymmanagement.ui.theme.Green
-import com.example.gymmanagement.ui.theme.Red
 import com.example.gymmanagement.ui.utils.DateUtils
 import com.example.gymmanagement.ui.utils.DateUtils.toDateString
+import java.text.NumberFormat
+import java.util.*
 import java.util.concurrent.TimeUnit
+import kotlin.math.abs
 
-/**
- * The master, reusable list item for displaying a member.
- * It provides a consistent look and feel for all member lists.
- * The `trailingContent` slot makes it flexible for different screens.
- */
+// Data class for combined Transaction UI state
+data class UiTransaction(
+    val paymentDetails: Payment,
+    val memberPhotoUri: String?
+)
+
 @Composable
 fun MemberListItem(
     member: Member,
@@ -44,9 +51,10 @@ fun MemberListItem(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable{
+            .clickable {
                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                onClick()},
+                onClick()
+            },
         shape = RoundedCornerShape(16.dp),
         elevation = CardDefaults.cardElevation(4.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
@@ -56,7 +64,6 @@ fun MemberListItem(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Using AsyncImage for better placeholder/error handling
             AsyncImage(
                 model = member.photoUri,
                 contentDescription = "Member Photo",
@@ -93,15 +100,6 @@ fun MemberListItem(
     }
 }
 
-/**
- * A helper composable that displays the smart expiry status text.
- */
-// In CommonComposables.kt
-
-/**
- * A helper composable that displays the smart expiry status text.
- * It includes logic for expired, today, tomorrow, and future dates with color coding.
- */
 @Composable
 fun ExpiryStatusText(member: Member) {
     val todayStart = DateUtils.startOfDayMillis()
@@ -120,12 +118,11 @@ fun ExpiryStatusText(member: Member) {
         }
     }
 
-    // Determine color based on urgency
     val daysRemaining = if (isExpired) -1 else TimeUnit.MILLISECONDS.toDays(member.expiryDate - todayStart)
     val statusColor = when {
-        isExpired -> MaterialTheme.colorScheme.error
-        daysRemaining <= 3 -> RedAccent // Or another urgent color
-        daysRemaining <= 7 -> Color(0xFFFFC107) // Amber/Warning color
+        isExpired -> RedAccent
+        daysRemaining <= 3 -> RedAccent
+        daysRemaining <= 7 -> Color(0xFFFFC107)
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
 
@@ -135,4 +132,78 @@ fun ExpiryStatusText(member: Member) {
         color = statusColor,
         fontWeight = if (daysRemaining <= 7) FontWeight.SemiBold else FontWeight.Normal
     )
+}
+
+@Composable
+fun TransactionListItem(
+    transaction: UiTransaction,
+    onClick: () -> Unit
+) {
+    val haptics = LocalHapticFeedback.current
+    val context = LocalContext.current
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable {
+                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                if (transaction.paymentDetails.memberId.isNotBlank()) {
+                    onClick()
+                } else {
+                    Toast
+                        .makeText(context, "Cannot open details for this transaction.", Toast.LENGTH_SHORT)
+                        .show()
+                }
+            },
+        shape = RoundedCornerShape(16.dp),
+        elevation = CardDefaults.cardElevation(2.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            // --- UPDATED: Using AsyncImage for consistency ---
+            AsyncImage(
+                model = transaction.memberPhotoUri,
+                contentDescription = "Member Photo",
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.secondaryContainer),
+                contentScale = ContentScale.Crop,
+                placeholder = rememberVectorPainter(Icons.Default.Person),
+                error = rememberVectorPainter(Icons.Default.Person)
+            )
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = transaction.paymentDetails.memberName,
+                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = transaction.paymentDetails.type,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            Text(
+                text = formatCurrency(transaction.paymentDetails.amount),
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
+    }
+}
+
+fun formatCurrency(value: Double): String {
+    val format = NumberFormat.getCurrencyInstance(Locale("en", "IN"))
+    format.currency = Currency.getInstance("INR")
+    format.maximumFractionDigits = 2
+    return format.format(value)
 }

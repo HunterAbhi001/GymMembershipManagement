@@ -55,8 +55,10 @@ import com.example.gymmanagement.viewmodel.MainViewModel
 import com.example.gymmanagement.viewmodel.UiEvent
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
-import java.text.NumberFormat
 import java.util.*
+
+// --- IMPORTING THE SHARED FUNCTION ---
+import com.example.gymmanagement.ui.screens.formatCurrency
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -68,7 +70,6 @@ fun AddEditMemberScreen(
     plans: List<Plan>,
     isDarkTheme: Boolean
 ) {
-    // --- HAPTICS STEP 1: Get the haptics instance ---
     val haptics = LocalHapticFeedback.current
 
     // Basic fields
@@ -90,7 +91,6 @@ fun AddEditMemberScreen(
     var amountReceivedInput by remember { mutableStateOf("") }
     var dueAdvanceInput by remember { mutableStateOf("") }
 
-    // --- NEW: State for custom days ---
     var customDaysInput by remember { mutableStateOf("") }
 
     var photoUri by remember { mutableStateOf<Uri?>(null) }
@@ -163,17 +163,11 @@ fun AddEditMemberScreen(
             batch = member.batch ?: ""
             photoUri = member.photoUri?.let { Uri.parse(it) }
 
-            if (isRenewal) { // Extension or Renewal
-                val today = System.currentTimeMillis()
-                if (member.expiryDate >= today) { // Case 1: EXTENSION (Member is active)
-                    startDate = member.startDate // Preserve original start date
-                    baseDateForRenewal = member.expiryDate // New period starts from current expiry
-                } else { // Case 2: RENEWAL (Member has expired)
-                    startDate = today // New period starts today
-                    baseDateForRenewal = today
-                }
-                expiryDate = baseDateForRenewal
-                // Clear fields for new transaction
+            if (isRenewal) {
+                startDate = member.expiryDate
+                baseDateForRenewal = member.expiryDate
+                expiryDate = member.expiryDate
+                // Clear fields for the new transaction
                 selectedPlan = ""
                 priceInput = ""
                 discountInput = ""
@@ -274,8 +268,7 @@ fun AddEditMemberScreen(
                 title = { Text( when { member == null -> "Add Member"; isRenewal -> "Renew/Extend Member"; else -> "Edit Member" }) },
                 navigationIcon = {
                     IconButton(onClick = {
-                        // Haptic feedback
-                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                         navController.popBackStack()
                     }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -295,23 +288,18 @@ fun AddEditMemberScreen(
             ) {
                 Button(
                     onClick = {
-                        // Haptic feedback - Stronger confirmation
                         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-
                         isSaving = true
-
                         val planToSave = if (selectedPlan == "Custom Days") {
                             "Custom (${customDaysInput.trim()} Days)"
                         } else {
                             selectedPlan
                         }
-
                         val purchaseDateToSave = if (isRenewal || member == null) {
                             System.currentTimeMillis()
                         } else {
                             member.purchaseDate ?: startDate
                         }
-
                         val updatedMember = (member?.copy(
                             name = name.trim(),
                             contact = contact.trim(),
@@ -386,8 +374,7 @@ fun AddEditMemberScreen(
                     .background(MaterialTheme.colorScheme.secondaryContainer)
                     .border(2.dp, MaterialTheme.colorScheme.primary, CircleShape)
                     .clickable {
-                        // Haptic feedback
-                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                         showPhotoPickerDialog = true
                     },
                 contentAlignment = Alignment.Center
@@ -414,8 +401,7 @@ fun AddEditMemberScreen(
                             FilterChip(
                                 selected = (gender == item),
                                 onClick = {
-                                    // Haptic feedback
-                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                     gender = item
                                 },
                                 label = { Text(item) }
@@ -429,8 +415,7 @@ fun AddEditMemberScreen(
                 ExposedDropdownMenuBox(
                     expanded = planExpanded,
                     onExpandedChange = {
-                        // Haptic feedback
-                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                         planExpanded = !planExpanded
                     }
                 ) {
@@ -439,11 +424,10 @@ fun AddEditMemberScreen(
                         DropdownMenuItem(
                             text = { Text("Custom Days", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary) },
                             onClick = {
-                                // Haptic feedback
-                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                 selectedPlan = "Custom Days"
-                                priceInput = "" // Clear price for manual entry
-                                customDaysInput = "" // Clear custom days
+                                priceInput = ""
+                                customDaysInput = ""
                                 expiryDate = baseDateForRenewal
                                 planExpanded = false
                             }
@@ -461,14 +445,12 @@ fun AddEditMemberScreen(
                                     }
                                 },
                                 onClick = {
-                                    // Haptic feedback
-                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                     selectedPlan = plan.planName
                                     customDaysInput = ""
                                     expiryDate = calculateExpiryDate(baseDateForRenewal, plan.planName)
                                     val newPrice = if (plan.price > 0) plan.price.toString() else ""
                                     priceInput = newPrice
-
                                     val price = parseDoubleOrNull(newPrice)
                                     val discount = parseDoubleOrNull(discountInput)
                                     if (price != null) {
@@ -503,8 +485,7 @@ fun AddEditMemberScreen(
                             FilterChip(
                                 selected = (batch == item),
                                 onClick = {
-                                    // Haptic feedback
-                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                     batch = item
                                 },
                                 label = { Text(item) }
@@ -513,14 +494,12 @@ fun AddEditMemberScreen(
                     }
                 }
                 DatePickerField("Start Date", startDate.toDateString()) {
-                    // Haptic feedback
-                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                    if (!isRenewal) startDatePicker.show() // Start date is only editable for new members or simple edits
+                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    startDatePicker.show()
                 }
                 DatePickerField("Expiry Date", expiryDate.toDateString()) {
-                    // Haptic feedback
-                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                    if (selectedPlan != "Custom Days") expiryDatePicker.show() // Expiry is only editable if not custom
+                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    if (selectedPlan != "Custom Days") expiryDatePicker.show()
                 }
             }
 
@@ -552,16 +531,14 @@ fun AddEditMemberScreen(
                     Text("Take Photo", modifier = Modifier
                         .fillMaxWidth()
                         .clickable {
-                            // Haptic feedback
-                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                             showPhotoPickerDialog = false; launchCameraWithCheck()
                         }
                         .padding(12.dp))
                     Text("Choose from Gallery", modifier = Modifier
                         .fillMaxWidth()
                         .clickable {
-                            // Haptic feedback
-                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                             showPhotoPickerDialog = false; pickImageFromGallery()
                         }
                         .padding(12.dp))
@@ -569,8 +546,7 @@ fun AddEditMemberScreen(
             },
             confirmButton = {
                 TextButton(onClick = {
-                    // Haptic feedback
-                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                     showPhotoPickerDialog = false
                 }) { Text("Cancel") }
             })
@@ -624,13 +600,6 @@ private fun DatePickerField(label: String, value: String, onClick: () -> Unit) {
         OutlinedTextField(value = value, onValueChange = {}, readOnly = true, label = { Text(label) }, modifier = Modifier.fillMaxWidth(), trailingIcon = { IconButton(onClick = onClick) { Icon(Icons.Default.DateRange, contentDescription = "Select Date") } })
         Box(modifier = Modifier.matchParentSize().background(Color.Transparent).clickable(onClick = onClick))
     }
-}
-
-private fun formatCurrency(value: Double): String {
-    val format = NumberFormat.getCurrencyInstance(Locale("en", "IN"))
-    format.currency = Currency.getInstance("INR")
-    format.maximumFractionDigits = 0
-    return format.format(value)
 }
 
 fun grantUriPermissionsForCamera(context: Context, uri: Uri) { val cameraIntent = Intent(MediaStore.ACTION_IMAGE_CAPTURE); val resInfoList = context.packageManager.queryIntentActivities(cameraIntent, PackageManager.MATCH_DEFAULT_ONLY); for (resolveInfo in resInfoList) { val packageName = resolveInfo.activityInfo.packageName; context.grantUriPermission(packageName, uri, Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_READ_URI_PERMISSION) } }
